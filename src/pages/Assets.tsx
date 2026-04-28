@@ -10,7 +10,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { SearchInput } from '../components/ui/SearchInput';
 import { Pagination } from '../components/ui/Pagination';
 import { SkeletonRow } from '../components/ui/SkeletonRow';
-import type { Asset, Employee, AssetAssignment, Incident } from '../types';
+import type { Asset, Employee, AssetAssignment } from '../types';
 
 const PAGE_SIZE = 15;
 const ASSET_TYPES = ['Laptop', 'Torre', 'Server', 'Printer', 'Monitor', 'Peripheral', 'Other'];
@@ -23,6 +23,8 @@ const STATUSES = [
 const emptyAsset: Partial<Asset> = {
   serial_number: '', name: '', asset_type: 'Laptop', brand: '', model: '',
   status: 'active', location: '', purchase_date: null, purchase_value: null,
+  operating_system: '', ip_address: '', mac_address: '', processor: '',
+  ram_gb: null, storage_gb: null, last_inventory_at: null,
   warranty_expiry: null, end_of_life: null, notes: '', image_url: '',
 };
 
@@ -111,6 +113,7 @@ export function Assets() {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterType, setFilterType] = useState('');
+  const [filterAvailability, setFilterAvailability] = useState('');
 
   const [modalOpen, setModalOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -140,7 +143,7 @@ export function Assets() {
   }
 
   useEffect(() => { load(); }, []);
-  useEffect(() => { setPage(1); setSelectedIds(new Set()); }, [search, filterStatus, filterType]);
+  useEffect(() => { setPage(1); setSelectedIds(new Set()); }, [search, filterStatus, filterType, filterAvailability]);
 
   function currentEmployee(assetId: string) {
     const asgn = assignments.find(a => a.asset_id === assetId);
@@ -150,12 +153,20 @@ export function Assets() {
   const filtered = assets.filter(a => {
     const q = search.toLowerCase();
     const emp = currentEmployee(a.id);
+    const isAvailable = a.status === 'active' && !emp;
     return (
       (!q || a.serial_number.toLowerCase().includes(q) || a.brand.toLowerCase().includes(q)
         || a.model.toLowerCase().includes(q) || a.location.toLowerCase().includes(q)
+        || (a.operating_system ?? '').toLowerCase().includes(q)
+        || (a.ip_address ?? '').toLowerCase().includes(q)
+        || (a.mac_address ?? '').toLowerCase().includes(q)
         || (emp?.name ?? '').toLowerCase().includes(q))
       && (!filterStatus || a.status === filterStatus)
       && (!filterType || a.asset_type === filterType)
+      && (!filterAvailability
+        || (filterAvailability === 'available' && isAvailable)
+        || (filterAvailability === 'assigned' && Boolean(emp))
+        || (filterAvailability === 'unlocated' && !a.location?.trim()))
     );
   });
 
@@ -437,6 +448,12 @@ ${warrantyWarning}${eolWarning}
             <option value="">Todos los tipos</option>
             {ASSET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
+          <select value={filterAvailability} onChange={e => setFilterAvailability(e.target.value)} className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white text-gray-700">
+            <option value="">Todos</option>
+            <option value="available">Disponibles</option>
+            <option value="assigned">Ocupados</option>
+            <option value="unlocated">Sin ubicacion</option>
+          </select>
           <div className="ml-auto flex items-center gap-2">
             <span className="text-sm text-gray-500">{filtered.length} activos</span>
             <button onClick={handlePrintAllLabels} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Printer size={15} /> Etiquetas</button>
@@ -548,6 +565,18 @@ ${warrantyWarning}${eolWarning}
             <FormField label="Fin de Vida (EOL)">
               <input type="date" value={editing.end_of_life ?? ''} onChange={e => setEditing(p => ({ ...p, end_of_life: e.target.value || null }))} className="input" />
             </FormField>
+            <div className="col-span-2 pt-2 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Inventario tecnico</p>
+              <div className="grid grid-cols-2 gap-4">
+                <FormField label="Sistema operativo"><input value={editing.operating_system ?? ''} onChange={e => setEditing(p => ({ ...p, operating_system: e.target.value }))} className="input" maxLength={200} /></FormField>
+                <FormField label="Procesador"><input value={editing.processor ?? ''} onChange={e => setEditing(p => ({ ...p, processor: e.target.value }))} className="input" maxLength={200} /></FormField>
+                <FormField label="IP"><input value={editing.ip_address ?? ''} onChange={e => setEditing(p => ({ ...p, ip_address: e.target.value }))} className="input" maxLength={64} /></FormField>
+                <FormField label="MAC"><input value={editing.mac_address ?? ''} onChange={e => setEditing(p => ({ ...p, mac_address: e.target.value }))} className="input font-mono" maxLength={64} /></FormField>
+                <FormField label="RAM (GB)"><input type="number" min="0" step="0.01" value={editing.ram_gb ?? ''} onChange={e => setEditing(p => ({ ...p, ram_gb: e.target.value ? parseFloat(e.target.value) : null }))} className="input" /></FormField>
+                <FormField label="Disco (GB)"><input type="number" min="0" step="0.01" value={editing.storage_gb ?? ''} onChange={e => setEditing(p => ({ ...p, storage_gb: e.target.value ? parseFloat(e.target.value) : null }))} className="input" /></FormField>
+                <FormField label="Ultimo inventario"><input type="datetime-local" value={editing.last_inventory_at ? editing.last_inventory_at.slice(0, 16) : ''} onChange={e => setEditing(p => ({ ...p, last_inventory_at: e.target.value ? new Date(e.target.value).toISOString() : null }))} className="input" /></FormField>
+              </div>
+            </div>
             <div className="col-span-2">
               <FormField label="Notas"><textarea rows={2} value={editing.notes ?? ''} onChange={e => setEditing(p => ({ ...p, notes: e.target.value }))} className="input resize-none" maxLength={1000} /></FormField>
             </div>
@@ -567,6 +596,14 @@ ${warrantyWarning}${eolWarning}
                 <DetailItem label="Marca/Modelo" value={`${selected.brand} ${selected.model}`} />
                 <DetailItem label="Estado" value={statusBadge(selected.status)} />
                 <DetailItem label="Ubicación" value={selected.location || '—'} />
+                {(selected.operating_system || selected.ip_address || selected.mac_address || selected.processor) && (
+                  <>
+                    <DetailItem label="Sistema" value={selected.operating_system || '—'} />
+                    <DetailItem label="IP / MAC" value={`${selected.ip_address || '—'} / ${selected.mac_address || '—'}`} />
+                    <DetailItem label="CPU" value={selected.processor || '—'} />
+                    <DetailItem label="RAM / Disco" value={`${selected.ram_gb ?? '—'} GB / ${selected.storage_gb ?? '—'} GB`} />
+                  </>
+                )}
                 {selected.warranty_expiry && (
                   <DetailItem label="Fin Garantía" value={new Date(selected.warranty_expiry).toLocaleDateString('es-ES')} />
                 )}
@@ -629,6 +666,18 @@ ${warrantyWarning}${eolWarning}
                     <div className="pt-2 border-t border-gray-200 space-y-1">
                       <InfoRow label="Ubicacion" value={selected.location || '—'} />
                       <InfoRow label="Asignado a" value={qrEmployee?.name ?? 'Sin asignar'} />
+                      {selected.operating_system && (
+                        <InfoRow label="Sistema" value={selected.operating_system} />
+                      )}
+                      {(selected.ip_address || selected.mac_address) && (
+                        <InfoRow label="Red" value={`${selected.ip_address || '—'} / ${selected.mac_address || '—'}`} />
+                      )}
+                      {selected.processor && (
+                        <InfoRow label="CPU" value={selected.processor} />
+                      )}
+                      {(selected.ram_gb || selected.storage_gb) && (
+                        <InfoRow label="RAM / Disco" value={`${selected.ram_gb ?? '—'} GB / ${selected.storage_gb ?? '—'} GB`} />
+                      )}
                       {selected.warranty_expiry && (
                         <InfoRow label="Garantia hasta" value={new Date(selected.warranty_expiry).toLocaleDateString('es-ES')} />
                       )}

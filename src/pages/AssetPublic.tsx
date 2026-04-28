@@ -3,7 +3,7 @@ import {
   Monitor, MapPin, User, Building2, Briefcase, ShieldCheck, ShieldAlert, ShieldOff,
   Calendar, AlertTriangle, CheckCircle, Wrench, Archive, Package, Plus, Send,
   ChevronDown, ChevronUp, Printer, RefreshCw, Clock, Flag, X, Lock, KeyRound,
-  Settings, UserCheck,
+  Settings,
 } from 'lucide-react';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;

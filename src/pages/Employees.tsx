@@ -14,12 +14,13 @@ import type { Employee, AssetAssignment, Asset } from '../types';
 
 const PAGE_SIZE = 15;
 const emptyEmployee: Partial<Employee> = { name: '', email: '', department: '', position: '', active: true };
+type AssetOption = Pick<Asset, 'id' | 'serial_number' | 'brand' | 'model' | 'asset_type' | 'status'>;
 
 export function Employees() {
   const { showToast } = useToast();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [assignments, setAssignments] = useState<AssetAssignment[]>([]);
-  const [allAssets, setAllAssets] = useState<Asset[]>([]);
+  const [allAssets, setAllAssets] = useState<AssetOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterDept, setFilterDept] = useState('');

@@ -1,4 +1,4 @@
-export function exportCSV(filename: string, rows: Record<string, unknown>[], headers: { key: string; label: string }[]) {
+export function exportCSV(filename: string, rows: object[], headers: { key: string; label: string }[]) {
   const escape = (v: unknown) => {
     const s = v == null ? '' : String(v);
     if (s.includes(',') || s.includes('"') || s.includes('\n')) {
@@ -8,7 +8,10 @@ export function exportCSV(filename: string, rows: Record<string, unknown>[], hea
   };
 
   const headerRow = headers.map(h => escape(h.label)).join(',');
-  const dataRows = rows.map(row => headers.map(h => escape(row[h.key])).join(','));
+  const dataRows = rows.map(row => {
+    const record = row as Record<string, unknown>;
+    return headers.map(h => escape(record[h.key])).join(',');
+  });
   const csv = [headerRow, ...dataRows].join('\n');
 
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });

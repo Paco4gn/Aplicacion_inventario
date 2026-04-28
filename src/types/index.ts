@@ -29,6 +29,13 @@ export interface Asset {
   purchase_value: number | null;
   warranty_expiry: string | null;
   end_of_life: string | null;
+  operating_system: string;
+  ip_address: string;
+  mac_address: string;
+  processor: string;
+  ram_gb: number | null;
+  storage_gb: number | null;
+  last_inventory_at: string | null;
   notes: string;
   image_url: string;
   created_at: string;
@@ -92,6 +99,19 @@ export interface License {
   created_at: string;
   updated_at: string;
   software?: Software;
+}
+
+export interface LicenseAssignment {
+  id: string;
+  license_id: string;
+  employee_id: string | null;
+  asset_id: string | null;
+  assigned_at: string;
+  returned_at: string | null;
+  notes: string;
+  license?: License;
+  employee?: Employee | null;
+  asset?: Asset | null;
 }
 
 export interface Component {

@@ -13,6 +13,8 @@ import { SkeletonRow } from '../components/ui/SkeletonRow';
 import type { Incident, Asset, Employee } from '../types';
 
 const PAGE_SIZE = 15;
+type AssetOption = Pick<Asset, 'id' | 'serial_number' | 'brand' | 'model'>;
+type EmployeeOption = Pick<Employee, 'id' | 'name'>;
 
 const PRIORITIES = [
   { value: 'low', label: 'Baja' },
@@ -48,8 +50,8 @@ function statusBadge(s: string) {
 export function Incidents() {
   const { showToast } = useToast();
   const [incidents, setIncidents] = useState<Incident[]>([]);
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [assets, setAssets] = useState<AssetOption[]>([]);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
