@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Monitor, Download, History, UserCheck } from 'lucide-react';
+import { Plus, Pencil, Trash2, Monitor, Download, History, UserCheck, Key } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAction } from '../lib/audit';
 import { exportCSV } from '../lib/csv';
@@ -10,7 +10,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { SearchInput } from '../components/ui/SearchInput';
 import { Pagination } from '../components/ui/Pagination';
 import { SkeletonRow } from '../components/ui/SkeletonRow';
-import type { Employee, AssetAssignment, Asset } from '../types';
+import type { Employee, AssetAssignment, Asset, LicenseAssignment } from '../types';
 
 const PAGE_SIZE = 15;
 const emptyEmployee: Partial<Employee> = { name: '', email: '', department: '', position: '', active: true };
@@ -20,6 +20,7 @@ export function Employees() {
   const { showToast } = useToast();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [assignments, setAssignments] = useState<AssetAssignment[]>([]);
+  const [licenseAssignments, setLicenseAssignments] = useState<LicenseAssignment[]>([]);
   const [allAssets, setAllAssets] = useState<AssetOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -35,13 +36,15 @@ export function Employees() {
   const [assignAssetId, setAssignAssetId] = useState('');
 
   async function load() {
-    const [{ data: e }, { data: asgn }, { data: a }] = await Promise.all([
+    const [{ data: e }, { data: asgn }, { data: a }, licenseResult] = await Promise.all([
       supabase.from('employees').select('*').order('name'),
       supabase.from('asset_assignments').select('*, asset:assets(id,serial_number,brand,model,asset_type)').is('returned_at', null),
       supabase.from('assets').select('id,serial_number,brand,model,asset_type,status').eq('status', 'active').order('serial_number'),
+      supabase.from('license_assignments').select('*, license:licenses(id,license_key,software:software(name))').is('returned_at', null),
     ]);
     setEmployees(e ?? []);
     setAssignments(asgn ?? []);
+    setLicenseAssignments(licenseResult.data ?? []);
     setAllAssets(a ?? []);
     setLoading(false);
   }
@@ -51,6 +54,10 @@ export function Employees() {
 
   function currentAssets(empId: string) {
     return assignments.filter(a => a.employee_id === empId);
+  }
+
+  function currentLicenses(empId: string) {
+    return licenseAssignments.filter(a => a.employee_id === empId);
   }
 
   const departments = [
@@ -138,11 +145,17 @@ export function Employees() {
   }
 
   function handleExport() {
-    exportCSV('empleados.csv', filtered, [
+    exportCSV('empleados.csv', filtered.map(emp => ({
+      ...emp,
+      assigned_assets: currentAssets(emp.id).length,
+      assigned_licenses: currentLicenses(emp.id).length,
+    })), [
       { key: 'name', label: 'Nombre' },
       { key: 'email', label: 'Email' },
       { key: 'department', label: 'Departamento' },
       { key: 'position', label: 'Cargo' },
+      { key: 'assigned_assets', label: 'Equipos asignados' },
+      { key: 'assigned_licenses', label: 'Licencias asignadas' },
       { key: 'active', label: 'Activo' },
     ]);
   }
@@ -184,15 +197,17 @@ export function Employees() {
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Departamento</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Cargo</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Equipos asignados</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Licencias</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Estado</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
               {loading
-                ? Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} cols={7} />)
+                ? Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} cols={8} />)
                 : paginated.map(emp => {
                     const myAssets = currentAssets(emp.id);
+                    const myLicenses = currentLicenses(emp.id);
                     return (
                       <tr key={emp.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3">
@@ -224,6 +239,26 @@ export function Employees() {
                           )}
                         </td>
                         <td className="px-4 py-3">
+                          {myLicenses.length > 0 ? (
+                            <div className="space-y-0.5">
+                              {myLicenses.slice(0, 2).map(a => {
+                                const lic = a.license as { license_key?: string; software?: { name?: string } } | null;
+                                return (
+                                  <div key={a.id} className="flex items-center gap-1.5">
+                                    <Key size={11} className="text-amber-500 flex-shrink-0" />
+                                    <span className="text-xs text-gray-700 truncate max-w-[160px]">{lic?.software?.name ?? lic?.license_key ?? 'Licencia'}</span>
+                                  </div>
+                                );
+                              })}
+                              {myLicenses.length > 2 && (
+                                <span className="text-xs text-gray-400">+{myLicenses.length - 2} mas</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 italic text-xs">Sin licencias</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
                           {emp.active ? <Badge variant="success">Activo</Badge> : <Badge variant="neutral">Inactivo</Badge>}
                         </td>
                         <td className="px-4 py-3">
@@ -247,7 +282,7 @@ export function Employees() {
                   })
               }
               {!loading && paginated.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">No se encontraron empleados</td></tr>
+                <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">No se encontraron empleados</td></tr>
               )}
             </tbody>
           </table>

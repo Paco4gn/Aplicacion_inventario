@@ -70,6 +70,12 @@ interface DashboardData {
     expired: number;
   };
   licenseAlerts: LicenseAlert[];
+  dataQuality: {
+    missingLocation: number;
+    missingTechnical: number;
+    staleInventory: number;
+    openCriticalIncidents: number;
+  };
 }
 
 const emptyData: DashboardData = {
@@ -94,6 +100,12 @@ const emptyData: DashboardData = {
     expired: 0,
   },
   licenseAlerts: [],
+  dataQuality: {
+    missingLocation: 0,
+    missingTechnical: 0,
+    staleInventory: 0,
+    openCriticalIncidents: 0,
+  },
 };
 
 function statusBadge(status: string) {
@@ -230,6 +242,17 @@ export function Dashboard() {
       const occupiedAssets = enrichedAssets.filter(asset => Boolean(asset.employee_name));
       const repairAssets = enrichedAssets.filter(asset => asset.status === 'repair');
       const unlocatedAssets = enrichedAssets.filter(asset => asset.status !== 'retired' && !asset.location?.trim());
+      const activeNonRetired = enrichedAssets.filter(asset => asset.status !== 'retired');
+      const staleLimit = Date.now() - 180 * 86400000;
+      const staleInventory = activeNonRetired.filter(asset => !asset.last_inventory_at || new Date(asset.last_inventory_at).getTime() < staleLimit).length;
+      const missingTechnical = activeNonRetired.filter(asset =>
+        !asset.operating_system?.trim()
+        && !asset.ip_address?.trim()
+        && !asset.mac_address?.trim()
+        && !asset.processor?.trim()
+        && !asset.ram_gb
+        && !asset.storage_gb
+      ).length;
 
       const typeMap: Record<string, TypeSummary> = {};
       for (const asset of enrichedAssets) {
@@ -314,6 +337,12 @@ export function Dashboard() {
           expired: licenseRows.filter(license => license.daysLeft !== null && license.daysLeft < 0).length,
         },
         licenseAlerts: licenseAlerts.slice(0, 6),
+        dataQuality: {
+          missingLocation: unlocatedAssets.length,
+          missingTechnical,
+          staleInventory,
+          openCriticalIncidents: ((incidents ?? []) as Incident[]).filter(incident => incident.priority === 'critical').length,
+        },
       });
 
       setLoading(false);
@@ -345,6 +374,36 @@ export function Dashboard() {
         <StatCard label="Sin ubicacion" value={data.unlocatedAssets.length} icon={MapPin} tone="red" subtitle="activos por localizar" alert={data.unlocatedAssets.length > 0} />
         <StatCard label="Retirados" value={data.retiredAssets} icon={Package} tone="slate" subtitle="fuera de servicio" />
       </div>
+
+      <section className="bg-white border border-gray-100 rounded-xl p-5">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="font-semibold text-gray-900">Control operativo</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Puntos que conviene revisar para mantener el inventario limpio</p>
+          </div>
+          <button onClick={() => setCurrentPage('assets')} className="text-sm font-medium text-blue-600 hover:text-blue-800">
+            Revisar datos
+          </button>
+        </div>
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="rounded-lg bg-red-50 border border-red-100 p-3">
+            <p className="text-xs font-medium text-red-600">Sin ubicacion</p>
+            <p className="text-2xl font-black text-red-700">{data.dataQuality.missingLocation}</p>
+          </div>
+          <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
+            <p className="text-xs font-medium text-amber-600">Ficha tecnica vacia</p>
+            <p className="text-2xl font-black text-amber-700">{data.dataQuality.missingTechnical}</p>
+          </div>
+          <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
+            <p className="text-xs font-medium text-blue-600">Sin revisar 180d</p>
+            <p className="text-2xl font-black text-blue-700">{data.dataQuality.staleInventory}</p>
+          </div>
+          <div className="rounded-lg bg-slate-50 border border-slate-100 p-3">
+            <p className="text-xs font-medium text-slate-600">Criticas abiertas</p>
+            <p className="text-2xl font-black text-slate-900">{data.dataQuality.openCriticalIncidents}</p>
+          </div>
+        </div>
+      </section>
 
       <section className="bg-white border border-gray-100 rounded-xl p-5">
         <div className="flex items-center justify-between gap-3 mb-4">
