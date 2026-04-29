@@ -11,6 +11,8 @@ param(
   [switch]$SyncToSupabase,
   [switch]$InstallScheduledTask,
   [int]$IntervalMinutes = 60,
+  [int]$IntervalDays = 0,
+  [switch]$RunAtStartup,
   [string]$TaskName = "IT Inventario - Inventario automatico"
 )
 
@@ -206,9 +208,20 @@ function Install-AgentTask {
 
   $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -SyncToSupabase"
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments
-  $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) -RepetitionDuration (New-TimeSpan -Days 3650)
-  Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Description "Actualiza automaticamente este equipo en IT Inventario" -Force | Out-Null
-  Write-Host "Tarea programada instalada: $TaskName cada $IntervalMinutes minutos"
+  $repeatEvery = if ($IntervalDays -gt 0) { New-TimeSpan -Days $IntervalDays } else { New-TimeSpan -Minutes $IntervalMinutes }
+  $triggers = @(
+    New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval $repeatEvery -RepetitionDuration (New-TimeSpan -Days 3650)
+  )
+  if ($RunAtStartup) {
+    $triggers += New-ScheduledTaskTrigger -AtStartup
+  }
+  Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers -Description "Actualiza automaticamente este equipo en IT Inventario" -Force | Out-Null
+  if ($IntervalDays -gt 0) {
+    Write-Host "Tarea programada instalada: $TaskName cada $IntervalDays dias"
+  } else {
+    Write-Host "Tarea programada instalada: $TaskName cada $IntervalMinutes minutos"
+  }
+  if ($RunAtStartup) { Write-Host "Tambien se ejecutara al arrancar Windows" }
   Write-Host "Config guardada en: $ConfigPath"
 }
 

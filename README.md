@@ -91,7 +91,8 @@ powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
   -SerialNumber "NUMERO-DE-SERIE-DEL-EQUIPO" `
   -Location "Oficina principal" `
   -AssetType "Laptop" `
-  -IntervalMinutes 60
+  -IntervalDays 15 `
+  -RunAtStartup
 ```
 
 El instalador crea:
@@ -102,3 +103,5 @@ C:\ProgramData\ITInventario\agent.json
 ```
 
 Y deja una tarea programada llamada **IT Inventario - Inventario automatico**. Desde ese momento se actualiza solo.
+
+Por defecto el instalador autonomo esta pensado para ejecutarse cada 15 dias. Con `-RunAtStartup` tambien sincroniza cuando el equipo arranca.
