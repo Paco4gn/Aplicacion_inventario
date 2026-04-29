@@ -40,7 +40,7 @@ No hace falta copiar todo el proyecto.
 
 PASOS EN CADA ORDENADOR
 -----------------------
-1. Copia install-inventory-agent.ps1 al ordenador.
+1. Copia collect-windows-inventory.ps1 al ordenador.
 
 2. Abre PowerShell como administrador.
 
@@ -135,7 +135,11 @@ Si no indicas numero de serie:
 
 COMANDO BASE PARA COPIAR
 ------------------------
-Cambia solo PC001 por el codigo que corresponda:
+Primero ve a Descargas si has dejado alli el archivo:
+
+cd $env:USERPROFILE\Downloads
+
+Despues ejecuta esto. Cambia solo PC001 por el codigo que corresponda:
 
 powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
   -Install `

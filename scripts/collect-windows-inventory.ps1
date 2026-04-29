@@ -229,6 +229,11 @@ function Get-NextInventorySerial {
 function Install-AgentTask {
   $scriptPath = $PSCommandPath
   if (-not $scriptPath) { throw "No se pudo localizar la ruta del script." }
+  New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
+  $installedScriptPath = Join-Path $ConfigDir "collect-windows-inventory.ps1"
+  if ($scriptPath -ne $installedScriptPath) {
+    Copy-Item -LiteralPath $scriptPath -Destination $installedScriptPath -Force
+  }
 
   Save-AgentConfig @{
     supabase_url = $SupabaseUrl
@@ -241,7 +246,7 @@ function Install-AgentTask {
     notes = $Notes
   }
 
-  $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -SyncToSupabase"
+  $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$installedScriptPath`" -SyncToSupabase"
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments
   $repeatEvery = if ($IntervalDays -gt 0) { New-TimeSpan -Days $IntervalDays } else { New-TimeSpan -Minutes $IntervalMinutes }
   $triggers = @(
@@ -257,6 +262,7 @@ function Install-AgentTask {
     Write-Host "Tarea programada instalada: $TaskName cada $IntervalMinutes minutos"
   }
   if ($RunAtStartup) { Write-Host "Tambien se ejecutara al arrancar Windows" }
+  Write-Host "Agente instalado en: $installedScriptPath"
   Write-Host "Config guardada en: $ConfigPath"
 }
 
@@ -264,7 +270,7 @@ if ($Install) {
   $InstallScheduledTask = $true
   $SyncToSupabase = $true
   if (-not $SupabaseUrl) { $SupabaseUrl = "https://dwudqkzkwsqwxshumlza.supabase.co" }
-  if (-not $SupabaseAnonKey) { $SupabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWJhc2UiLCJyZWYiOiJkd3VkcWt6a3dzcXd4c2h1bWx6YSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzc3MjQzNDU2LCJleHAiOjIwOTI4MTk0NTZ9.uJF1whOlEYgaNeXy4uJ1mXR6MONxuXSGdecJAyYWObo" }
+  if (-not $SupabaseAnonKey) { $SupabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3dWRxa3prd3Nxd3hzaHVtbHphIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNDM0NTYsImV4cCI6MjA5MjgxOTQ1Nn0.uJF1whOlEYgaNeXy4uJ1mXR6MONxuXSGdecJAyYWObo" }
   if (-not $SupabaseEmail) { $SupabaseEmail = "informatica@feval.com" }
   if (-not $SupabasePassword) { $SupabasePassword = "p2p1l10n1t" }
 }
