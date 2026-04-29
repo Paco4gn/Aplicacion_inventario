@@ -158,6 +158,10 @@ function Sync-InventoryToSupabase {
     "Content-Type" = "application/json"
   }
 
+  if ([string]::IsNullOrWhiteSpace($SerialNumber)) {
+    $Row.serial_number = Get-NextInventorySerial -BaseUrl $baseUrl -Headers $headers
+  }
+
   $encodedSerial = [System.Uri]::EscapeDataString("eq.$($Row.serial_number)")
   $lookupUrl = "$baseUrl/rest/v1/assets?serial_number=$encodedSerial&select=id,serial_number"
   $existing = Invoke-RestMethod -Method Get -Uri $lookupUrl -Headers $headers
@@ -189,6 +193,24 @@ function Sync-InventoryToSupabase {
   $body = @($Row) | ConvertTo-Json -Depth 5
   Invoke-RestMethod -Method Post -Uri "$baseUrl/rest/v1/assets" -Headers $createHeaders -Body $body | Out-Null
   Write-Host "Activo nuevo creado por numero de serie: $($Row.serial_number)"
+}
+
+function Get-NextInventorySerial {
+  param(
+    [string]$BaseUrl,
+    [hashtable]$Headers
+  )
+
+  $url = "$BaseUrl/rest/v1/assets?select=serial_number&serial_number=like.PC*&order=serial_number.desc&limit=1000"
+  $rows = Invoke-RestMethod -Method Get -Uri $url -Headers $Headers
+  $max = 0
+  foreach ($row in $rows) {
+    if ($row.serial_number -match '^PC(\d+)$') {
+      $number = [int]$Matches[1]
+      if ($number -gt $max) { $max = $number }
+    }
+  }
+  return "PC{0:D3}" -f ($max + 1)
 }
 
 function Install-AgentTask {

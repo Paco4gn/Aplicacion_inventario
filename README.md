@@ -60,6 +60,7 @@ El agente trabaja por `serial_number`:
 
 - Si el numero de serie ya existe en **Activos**, actualiza solo los datos tecnicos: Windows, IP, MAC, CPU, RAM, disco, nombre del equipo, marca/modelo y ultimo inventario.
 - Si el numero de serie no existe, crea el activo automaticamente.
+- Si no indicas numero de serie, el agente consulta la base de datos y crea el siguiente codigo libre siguiendo la numeracion `PC001`, `PC002`, `PC003`...
 - No pisa ubicacion, asignacion, estado, notas manuales ni tipo del activo en equipos ya existentes.
 
 Si la BIOS devuelve un numero de serie incorrecto o quieres forzarlo manualmente:
@@ -105,3 +106,13 @@ C:\ProgramData\ITInventario\agent.json
 Y deja una tarea programada llamada **IT Inventario - Inventario automatico**. Desde ese momento se actualiza solo.
 
 Por defecto el instalador autonomo esta pensado para ejecutarse cada 15 dias. Con `-RunAtStartup` tambien sincroniza cuando el equipo arranca.
+
+Para un equipo nuevo, puedes omitir `-SerialNumber` y el agente creara el siguiente numero disponible:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
+  -Location "Oficina principal" `
+  -AssetType "Laptop" `
+  -IntervalDays 15 `
+  -RunAtStartup
+```
