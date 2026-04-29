@@ -24,3 +24,13 @@ npm run dev
 ```
 
 4. Ejecuta las migraciones de la carpeta `supabase/migrations` en tu proyecto de Supabase antes de iniciar sesion.
+
+## Inventario automatico de equipos Windows
+
+El navegador no puede leer directamente CPU, RAM, disco, IP o MAC por seguridad. Para capturar esos datos usa el script incluido:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\collect-windows-inventory.ps1 -OutputPath .\inventario-equipo.csv -Location "Oficina principal" -AssetType "Laptop"
+```
+
+Luego entra en **Activos** y pulsa **Importar** para cargar el CSV. Si el numero de serie ya existe, la app actualiza la ficha tecnica del equipo.

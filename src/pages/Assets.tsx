@@ -403,6 +403,13 @@ ${warrantyWarning}${eolWarning}
       purchase_value: parseFloat(r['Valor €'] || r['purchase_value'] || '') || null,
       warranty_expiry: r['Fin Garantía'] || r['warranty_expiry'] || null,
       end_of_life: r['Fin de Vida'] || r['end_of_life'] || null,
+      operating_system: r['Sistema operativo'] || r['operating_system'] || '',
+      ip_address: r['IP'] || r['ip_address'] || '',
+      mac_address: r['MAC'] || r['mac_address'] || '',
+      processor: r['Procesador'] || r['processor'] || '',
+      ram_gb: parseFloat(r['RAM (GB)'] || r['ram_gb'] || '') || null,
+      storage_gb: parseFloat(r['Disco (GB)'] || r['storage_gb'] || '') || null,
+      last_inventory_at: r['Ultimo inventario'] || r['last_inventory_at'] || new Date().toISOString(),
       notes: r['Notas'] || r['notes'] || '',
     })).filter(r => r.serial_number);
     if (!toInsert.length) { showToast('No se encontraron filas válidas (columna "Nº Serie" requerida)', 'error'); return; }
