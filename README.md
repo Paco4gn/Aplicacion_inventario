@@ -75,3 +75,30 @@ powershell -ExecutionPolicy Bypass -File .\scripts\collect-windows-inventory.ps1
   -SupabaseEmail "informatica@feval.com" `
   -SupabasePassword "CONTRASEÑA_DEL_USUARIO"
 ```
+
+### Instalador autonomo para otros equipos
+
+Para instalar el agente en un PC que no tiene la carpeta del proyecto, copia solo este archivo al equipo:
+
+```text
+scripts\install-inventory-agent.ps1
+```
+
+Despues ejecuta PowerShell como administrador en ese equipo:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
+  -SerialNumber "NUMERO-DE-SERIE-DEL-EQUIPO" `
+  -Location "Oficina principal" `
+  -AssetType "Laptop" `
+  -IntervalMinutes 60
+```
+
+El instalador crea:
+
+```text
+C:\ProgramData\ITInventario\collect-windows-inventory.ps1
+C:\ProgramData\ITInventario\agent.json
+```
+
+Y deja una tarea programada llamada **IT Inventario - Inventario automatico**. Desde ese momento se actualiza solo.
