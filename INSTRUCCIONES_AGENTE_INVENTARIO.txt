@@ -5,6 +5,16 @@ OBJETIVO
 --------
 Instalar en cada ordenador un agente automatico que actualiza sus datos tecnicos en la aplicacion de inventario.
 
+IMPORTANTE ANTES DE USARLO
+--------------------------
+En Supabase deben estar creadas las columnas tecnicas.
+
+Entra en Supabase > SQL Editor y ejecuta el archivo:
+
+SQL_ACTUALIZAR_SUPABASE_INVENTARIO.sql
+
+Si no haces este paso, el agente no se rompe, pero solo actualizara los campos basicos que ya existan.
+
 El agente actualiza:
 - Nombre del equipo
 - Marca

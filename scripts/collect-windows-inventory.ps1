@@ -141,6 +141,46 @@ function Get-SupabaseAccessToken {
   return $response.access_token
 }
 
+function Test-SupabaseColumn {
+  param(
+    [string]$BaseUrl,
+    [hashtable]$Headers,
+    [string]$ColumnName
+  )
+
+  try {
+    Invoke-RestMethod -Method Get -Uri "$BaseUrl/rest/v1/assets?select=$ColumnName&limit=0" -Headers $Headers | Out-Null
+    return $true
+  } catch {
+    return $false
+  }
+}
+
+function Select-ExistingAssetFields {
+  param(
+    [hashtable]$Payload,
+    [string]$BaseUrl,
+    [hashtable]$Headers
+  )
+
+  $filtered = @{}
+  $missing = @()
+  foreach ($key in $Payload.Keys) {
+    if (Test-SupabaseColumn -BaseUrl $BaseUrl -Headers $Headers -ColumnName $key) {
+      $filtered[$key] = $Payload[$key]
+    } else {
+      $missing += $key
+    }
+  }
+
+  if ($missing.Count -gt 0) {
+    Write-Host "Aviso: faltan columnas en Supabase y se omiten por ahora: $($missing -join ', ')"
+    Write-Host "Ejecuta la migracion de Supabase para guardar tambien las especificaciones tecnicas."
+  }
+
+  return $filtered
+}
+
 function Sync-InventoryToSupabase {
   param([hashtable]$Row)
 
@@ -182,6 +222,7 @@ function Sync-InventoryToSupabase {
       last_inventory_at = $Row.last_inventory_at
       updated_at = $Row.last_inventory_at
     }
+    $technicalPayload = Select-ExistingAssetFields -Payload $technicalPayload -BaseUrl $baseUrl -Headers $headers
     $patchUrl = "$baseUrl/rest/v1/assets?serial_number=$encodedSerial"
     $patchHeaders = $headers.Clone()
     $patchHeaders["Prefer"] = "return=minimal"
@@ -192,7 +233,8 @@ function Sync-InventoryToSupabase {
 
   $createHeaders = $headers.Clone()
   $createHeaders["Prefer"] = "return=minimal"
-  $body = @($Row) | ConvertTo-Json -Depth 5
+  $createPayload = Select-ExistingAssetFields -Payload $Row -BaseUrl $baseUrl -Headers $headers
+  $body = @($createPayload) | ConvertTo-Json -Depth 5
   Invoke-RestMethod -Method Post -Uri "$baseUrl/rest/v1/assets" -Headers $createHeaders -Body $body | Out-Null
   Write-Host "Activo nuevo creado por numero de serie: $($Row.serial_number)"
 }
