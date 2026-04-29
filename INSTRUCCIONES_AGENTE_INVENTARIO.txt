@@ -54,17 +54,26 @@ PASOS EN CADA ORDENADOR
 
    Ejemplo para PC001:
 
-   powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
-     -SerialNumber "PC001" `
-     -IntervalDays 15 `
-     -RunAtStartup
+  powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
+    -SerialNumber "PC001" `
+    -IntervalDays 15 `
+    -RunAtStartup
 
    Ejemplo para PC002:
 
-   powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
-     -SerialNumber "PC002" `
-     -IntervalDays 15 `
-     -RunAtStartup
+  powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
+    -SerialNumber "PC002" `
+    -IntervalDays 15 `
+    -RunAtStartup
+
+El tipo se detecta automaticamente como Laptop o Torre.
+Si quieres forzarlo, añade una de estas lineas:
+
+  -AssetType "Laptop"
+
+o:
+
+  -AssetType "Torre"
 
 
 QUE NUMERO DE SERIE PONER
@@ -135,6 +144,5 @@ Para un equipo nuevo, puedes omitir el numero de serie y se asignara el siguient
 
 powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
   -Location "Oficina principal" `
-  -AssetType "Laptop" `
   -IntervalDays 15 `
   -RunAtStartup

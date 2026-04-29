@@ -2,7 +2,7 @@ param(
   [string]$OutputPath = ".\inventario-equipo.csv",
   [string]$SerialNumber = "",
   [string]$Location = "",
-  [string]$AssetType = "Laptop",
+  [string]$AssetType = "",
   [string]$Notes = "Inventario automatico",
   [string]$SupabaseUrl = "",
   [string]$SupabaseAnonKey = "",
@@ -77,6 +77,7 @@ function Apply-ConfigDefaults {
 function Get-InventoryRow {
   $bios = Get-CimInstance Win32_BIOS
   $computer = Get-CimInstance Win32_ComputerSystem
+  $enclosure = Get-CimInstance Win32_SystemEnclosure | Select-Object -First 1
   $os = Get-CimInstance Win32_OperatingSystem
   $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
   $disks = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3"
@@ -104,7 +105,7 @@ function Get-InventoryRow {
   return [ordered]@{
     "serial_number" = $serial
     "name" = $env:COMPUTERNAME
-    "asset_type" = $AssetType
+    "asset_type" = if ($AssetType) { $AssetType } else { Get-DetectedAssetType -ChassisTypes $enclosure.ChassisTypes }
     "brand" = $computer.Manufacturer
     "model" = $computer.Model
     "status" = "active"
@@ -193,6 +194,17 @@ function Sync-InventoryToSupabase {
   $body = @($Row) | ConvertTo-Json -Depth 5
   Invoke-RestMethod -Method Post -Uri "$baseUrl/rest/v1/assets" -Headers $createHeaders -Body $body | Out-Null
   Write-Host "Activo nuevo creado por numero de serie: $($Row.serial_number)"
+}
+
+function Get-DetectedAssetType {
+  param($ChassisTypes)
+  $laptopTypes = @(8, 9, 10, 11, 12, 14, 18, 21, 30, 31, 32)
+  foreach ($type in @($ChassisTypes)) {
+    if ($laptopTypes -contains [int]$type) {
+      return "Laptop"
+    }
+  }
+  return "Torre"
 }
 
 function Get-NextInventorySerial {

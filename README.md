@@ -91,7 +91,6 @@ Despues ejecuta PowerShell como administrador en ese equipo:
 powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
   -SerialNumber "NUMERO-DE-SERIE-DEL-EQUIPO" `
   -Location "Oficina principal" `
-  -AssetType "Laptop" `
   -IntervalDays 15 `
   -RunAtStartup
 ```
@@ -112,7 +111,18 @@ Para un equipo nuevo, puedes omitir `-SerialNumber` y el agente creara el siguie
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
   -Location "Oficina principal" `
-  -AssetType "Laptop" `
   -IntervalDays 15 `
   -RunAtStartup
+```
+
+El tipo de activo se detecta automaticamente como `Laptop` o `Torre`. Si quieres forzarlo manualmente, puedes añadir:
+
+```powershell
+-AssetType "Laptop"
+```
+
+o:
+
+```powershell
+-AssetType "Torre"
 ```

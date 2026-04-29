@@ -1,7 +1,7 @@
 param(
   [string]$SerialNumber = "",
   [string]$Location = "",
-  [string]$AssetType = "Laptop",
+  [string]$AssetType = "",
   [int]$IntervalMinutes = 0,
   [int]$IntervalDays = 15,
   [switch]$RunAtStartup,
