@@ -1,5 +1,6 @@
 param(
   [string]$OutputPath = ".\inventario-equipo.csv",
+  [string]$SerialNumber = "",
   [string]$Location = "",
   [string]$AssetType = "Laptop",
   [string]$Notes = "Inventario automatico",
@@ -46,6 +47,7 @@ function Apply-ConfigDefaults {
   if (-not $SupabaseAnonKey) { $script:SupabaseAnonKey = $config.supabase_anon_key }
   if (-not $SupabaseEmail) { $script:SupabaseEmail = $config.supabase_email }
   if (-not $SupabasePassword) { $script:SupabasePassword = $config.supabase_password }
+  if (-not $SerialNumber) { $script:SerialNumber = $config.serial_number }
   if (-not $Location) { $script:Location = $config.location }
   if (-not $AssetType -and $config.asset_type) { $script:AssetType = $config.asset_type }
   if (-not $Notes -and $config.notes) { $script:Notes = $config.notes }
@@ -67,6 +69,9 @@ function Get-InventoryRow {
   }
   if ([string]::IsNullOrWhiteSpace($serial) -or $serial -match "To be filled|Default|string") {
     $serial = $env:COMPUTERNAME
+  }
+  if (-not [string]::IsNullOrWhiteSpace($SerialNumber)) {
+    $serial = $SerialNumber.Trim()
   }
 
   $ramGb = [math]::Round(($computer.TotalPhysicalMemory / 1GB), 2)
@@ -125,15 +130,44 @@ function Sync-InventoryToSupabase {
     $token = $SupabaseAnonKey
   }
 
-  $restUrl = "$($SupabaseUrl.TrimEnd('/'))/rest/v1/assets?on_conflict=serial_number"
+  $baseUrl = $SupabaseUrl.TrimEnd('/')
   $headers = @{
     "apikey" = $SupabaseAnonKey
     "Authorization" = "Bearer $token"
     "Content-Type" = "application/json"
-    "Prefer" = "resolution=merge-duplicates,return=minimal"
   }
+
+  $encodedSerial = [System.Uri]::EscapeDataString("eq.$($Row.serial_number)")
+  $lookupUrl = "$baseUrl/rest/v1/assets?serial_number=$encodedSerial&select=id,serial_number"
+  $existing = Invoke-RestMethod -Method Get -Uri $lookupUrl -Headers $headers
+
+  if ($existing.Count -gt 0) {
+    $technicalPayload = @{
+      name = $Row.name
+      brand = $Row.brand
+      model = $Row.model
+      operating_system = $Row.operating_system
+      ip_address = $Row.ip_address
+      mac_address = $Row.mac_address
+      processor = $Row.processor
+      ram_gb = $Row.ram_gb
+      storage_gb = $Row.storage_gb
+      last_inventory_at = $Row.last_inventory_at
+      updated_at = $Row.last_inventory_at
+    }
+    $patchUrl = "$baseUrl/rest/v1/assets?serial_number=$encodedSerial"
+    $patchHeaders = $headers.Clone()
+    $patchHeaders["Prefer"] = "return=minimal"
+    Invoke-RestMethod -Method Patch -Uri $patchUrl -Headers $patchHeaders -Body ($technicalPayload | ConvertTo-Json -Depth 5) | Out-Null
+    Write-Host "Activo existente actualizado por numero de serie: $($Row.serial_number)"
+    return
+  }
+
+  $createHeaders = $headers.Clone()
+  $createHeaders["Prefer"] = "return=minimal"
   $body = @($Row) | ConvertTo-Json -Depth 5
-  Invoke-RestMethod -Method Post -Uri $restUrl -Headers $headers -Body $body | Out-Null
+  Invoke-RestMethod -Method Post -Uri "$baseUrl/rest/v1/assets" -Headers $createHeaders -Body $body | Out-Null
+  Write-Host "Activo nuevo creado por numero de serie: $($Row.serial_number)"
 }
 
 function Install-AgentTask {
@@ -145,6 +179,7 @@ function Install-AgentTask {
     supabase_anon_key = $SupabaseAnonKey
     supabase_email = $SupabaseEmail
     supabase_password = $SupabasePassword
+    serial_number = $SerialNumber
     location = $Location
     asset_type = $AssetType
     notes = $Notes

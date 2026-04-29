@@ -53,3 +53,25 @@ powershell -ExecutionPolicy Bypass -File .\scripts\collect-windows-inventory.ps1
 ```
 
 La tarea queda instalada como **IT Inventario - Inventario automatico** y ejecuta la sincronizacion cada hora. La configuracion se guarda localmente en `C:\ProgramData\ITInventario\agent.json`.
+
+### Flujo recomendado por numero de serie
+
+El agente trabaja por `serial_number`:
+
+- Si el numero de serie ya existe en **Activos**, actualiza solo los datos tecnicos: Windows, IP, MAC, CPU, RAM, disco, nombre del equipo, marca/modelo y ultimo inventario.
+- Si el numero de serie no existe, crea el activo automaticamente.
+- No pisa ubicacion, asignacion, estado, notas manuales ni tipo del activo en equipos ya existentes.
+
+Si la BIOS devuelve un numero de serie incorrecto o quieres forzarlo manualmente:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\collect-windows-inventory.ps1 `
+  -InstallScheduledTask `
+  -SyncToSupabase `
+  -SerialNumber "NUMERO-DE-SERIE-DEL-EQUIPO" `
+  -IntervalMinutes 60 `
+  -SupabaseUrl "https://dwudqkzkwsqwxshumlza.supabase.co" `
+  -SupabaseAnonKey "TU_ANON_KEY" `
+  -SupabaseEmail "informatica@feval.com" `
+  -SupabasePassword "CONTRASEÑA_DEL_USUARIO"
+```
