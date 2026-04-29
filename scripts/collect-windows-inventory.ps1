@@ -34,6 +34,24 @@ function Load-AgentConfig {
   return $null
 }
 
+function Protect-Text {
+  param([string]$Text)
+  if (-not $Text) { return "" }
+  return ConvertTo-SecureString $Text -AsPlainText -Force | ConvertFrom-SecureString
+}
+
+function Unprotect-Text {
+  param([string]$ProtectedText)
+  if (-not $ProtectedText) { return "" }
+  $secure = ConvertTo-SecureString $ProtectedText
+  $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+  try {
+    return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+  } finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+  }
+}
+
 function Save-AgentConfig {
   param([hashtable]$Config)
   New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
@@ -46,7 +64,8 @@ function Apply-ConfigDefaults {
   if (-not $SupabaseUrl) { $script:SupabaseUrl = $config.supabase_url }
   if (-not $SupabaseAnonKey) { $script:SupabaseAnonKey = $config.supabase_anon_key }
   if (-not $SupabaseEmail) { $script:SupabaseEmail = $config.supabase_email }
-  if (-not $SupabasePassword) { $script:SupabasePassword = $config.supabase_password }
+  if (-not $SupabasePassword -and $config.supabase_password_protected) { $script:SupabasePassword = Unprotect-Text $config.supabase_password_protected }
+  if (-not $SupabasePassword -and $config.supabase_password) { $script:SupabasePassword = $config.supabase_password }
   if (-not $SerialNumber) { $script:SerialNumber = $config.serial_number }
   if (-not $Location) { $script:Location = $config.location }
   if (-not $AssetType -and $config.asset_type) { $script:AssetType = $config.asset_type }
@@ -178,7 +197,7 @@ function Install-AgentTask {
     supabase_url = $SupabaseUrl
     supabase_anon_key = $SupabaseAnonKey
     supabase_email = $SupabaseEmail
-    supabase_password = $SupabasePassword
+    supabase_password_protected = Protect-Text $SupabasePassword
     serial_number = $SerialNumber
     location = $Location
     asset_type = $AssetType
