@@ -29,11 +29,11 @@ ARCHIVO QUE HAY QUE COPIAR AL ORDENADOR
 ---------------------------------------
 Copia este archivo al ordenador donde quieres instalar el agente:
 
-install-inventory-agent.ps1
+collect-windows-inventory.ps1
 
 Esta dentro del proyecto en:
 
-scripts\install-inventory-agent.ps1
+scripts\collect-windows-inventory.ps1
 
 No hace falta copiar todo el proyecto.
 
@@ -54,17 +54,19 @@ PASOS EN CADA ORDENADOR
 
    Ejemplo para PC001:
 
-  powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
-    -SerialNumber "PC001" `
-    -IntervalDays 15 `
-    -RunAtStartup
+   powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
+     -Install `
+     -SerialNumber "PC001" `
+     -IntervalDays 15 `
+     -RunAtStartup
 
    Ejemplo para PC002:
 
-  powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
-    -SerialNumber "PC002" `
-    -IntervalDays 15 `
-    -RunAtStartup
+   powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
+     -Install `
+     -SerialNumber "PC002" `
+     -IntervalDays 15 `
+     -RunAtStartup
 
 El tipo se detecta automaticamente como Laptop o Torre.
 Si quieres forzarlo, añade una de estas lineas:
@@ -135,14 +137,16 @@ COMANDO BASE PARA COPIAR
 ------------------------
 Cambia solo PC001 por el codigo que corresponda:
 
-powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
+powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
+  -Install `
   -SerialNumber "PC001" `
   -IntervalDays 15 `
   -RunAtStartup
 
 Para un equipo nuevo, puedes omitir el numero de serie y se asignara el siguiente PC automaticamente:
 
-powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
+powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
+  -Install `
   -Location "Oficina principal" `
   -IntervalDays 15 `
   -RunAtStartup

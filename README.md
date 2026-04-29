@@ -82,13 +82,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\collect-windows-inventory.ps1
 Para instalar el agente en un PC que no tiene la carpeta del proyecto, copia solo este archivo al equipo:
 
 ```text
-scripts\install-inventory-agent.ps1
+scripts\collect-windows-inventory.ps1
 ```
 
 Despues ejecuta PowerShell como administrador en ese equipo:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
+powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
+  -Install `
   -SerialNumber "NUMERO-DE-SERIE-DEL-EQUIPO" `
   -Location "Oficina principal" `
   -IntervalDays 15 `
@@ -109,7 +110,8 @@ Por defecto el instalador autonomo esta pensado para ejecutarse cada 15 dias. Co
 Para un equipo nuevo, puedes omitir `-SerialNumber` y el agente creara el siguiente numero disponible:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install-inventory-agent.ps1 `
+powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
+  -Install `
   -Location "Oficina principal" `
   -IntervalDays 15 `
   -RunAtStartup

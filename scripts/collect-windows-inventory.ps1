@@ -10,6 +10,7 @@ param(
   [string]$SupabasePassword = "",
   [switch]$SyncToSupabase,
   [switch]$InstallScheduledTask,
+  [switch]$Install,
   [int]$IntervalMinutes = 60,
   [int]$IntervalDays = 0,
   [switch]$RunAtStartup,
@@ -257,6 +258,15 @@ function Install-AgentTask {
   }
   if ($RunAtStartup) { Write-Host "Tambien se ejecutara al arrancar Windows" }
   Write-Host "Config guardada en: $ConfigPath"
+}
+
+if ($Install) {
+  $InstallScheduledTask = $true
+  $SyncToSupabase = $true
+  if (-not $SupabaseUrl) { $SupabaseUrl = "https://dwudqkzkwsqwxshumlza.supabase.co" }
+  if (-not $SupabaseAnonKey) { $SupabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWJhc2UiLCJyZWYiOiJkd3VkcWt6a3dzcXd4c2h1bWx6YSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzc3MjQzNDU2LCJleHAiOjIwOTI4MTk0NTZ9.uJF1whOlEYgaNeXy4uJ1mXR6MONxuXSGdecJAyYWObo" }
+  if (-not $SupabaseEmail) { $SupabaseEmail = "informatica@feval.com" }
+  if (-not $SupabasePassword) { $SupabasePassword = "p2p1l10n1t" }
 }
 
 Apply-ConfigDefaults
