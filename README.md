@@ -34,3 +34,22 @@ powershell -ExecutionPolicy Bypass -File .\scripts\collect-windows-inventory.ps1
 ```
 
 Luego entra en **Activos** y pulsa **Importar** para cargar el CSV. Si el numero de serie ya existe, la app actualiza la ficha tecnica del equipo.
+
+### Sincronizacion automatica con Supabase
+
+Para que el equipo se actualice solo, instala una tarea programada en cada PC. Usa un usuario de Supabase con permisos de admin en la app:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\collect-windows-inventory.ps1 `
+  -InstallScheduledTask `
+  -SyncToSupabase `
+  -IntervalMinutes 60 `
+  -Location "Oficina principal" `
+  -AssetType "Laptop" `
+  -SupabaseUrl "https://dwudqkzkwsqwxshumlza.supabase.co" `
+  -SupabaseAnonKey "TU_ANON_KEY" `
+  -SupabaseEmail "informatica@feval.com" `
+  -SupabasePassword "CONTRASEÑA_DEL_USUARIO"
+```
+
+La tarea queda instalada como **IT Inventario - Inventario automatico** y ejecuta la sincronizacion cada hora. La configuracion se guarda localmente en `C:\ProgramData\ITInventario\agent.json`.
