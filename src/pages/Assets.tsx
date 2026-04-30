@@ -42,7 +42,7 @@ function warrantyBadge(expiry: string | null) {
   return null;
 }
 
-const APP_BASE_URL = window.location.origin;
+const APP_BASE_URL = new URL(import.meta.env.BASE_URL || '/', window.location.origin).toString().replace(/\/$/, '');
 
 function buildPublicUrl(serial: string) {
   return `${APP_BASE_URL}/?asset=${encodeURIComponent(serial)}`;
