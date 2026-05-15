@@ -1,0 +1,98 @@
+INSTRUCCIONES PARA ETIQUETAS APLI 1272 EN WORD
+==============================================
+
+OBJETIVO
+--------
+Imprimir etiquetas APLI 1272 desde Word usando correspondencia.
+
+La referencia APLI 1272 es de etiquetas A4 de 70 x 35 mm, 24 etiquetas por hoja.
+
+
+PASO 1 - EXPORTAR DESDE LA APP
+------------------------------
+1. Entra en la app.
+2. Ve a Activos.
+3. Si quieres solo algunos equipos, marcalos con el checkbox.
+4. Pulsa el boton:
+
+   Word APLI 1272
+
+5. Se descargara este archivo:
+
+   destinatarios-etiquetas-apli-1272.csv
+
+
+PASO 2 - ABRIR WORD
+-------------------
+1. Abre Word.
+2. Ve a Correspondencia.
+3. Pulsa Etiquetas.
+4. Elige APLI 1272 o crea etiqueta personalizada:
+
+   Ancho: 70 mm
+   Alto: 35 mm
+   Etiquetas por hoja: 24
+
+5. Pulsa Iniciar combinacion de correspondencia > Etiquetas.
+
+
+PASO 3 - SELECCIONAR DESTINATARIOS
+----------------------------------
+1. Pulsa Seleccionar destinatarios.
+2. Pulsa Usar una lista existente.
+3. Selecciona:
+
+   destinatarios-etiquetas-apli-1272.csv
+
+
+PASO 4 - CAMPOS RECOMENDADOS
+----------------------------
+Campos disponibles:
+
+N_SERIE
+NOMBRE
+TIPO
+MARCA
+MODELO
+MARCA_MODELO
+UBICACION
+ESTADO
+ASIGNADO_A
+URL_PUBLICA
+QR_URL
+TEXTO_ETIQUETA
+APLI_REFERENCIA
+APLI_MEDIDA
+FECHA_GENERACION
+
+Diseno simple recomendado:
+
+N_SERIE
+MARCA_MODELO
+UBICACION
+
+
+PASO 5 - QR EN WORD
+-------------------
+Para crear el QR directamente en Word, usa el campo URL_PUBLICA.
+
+En Word:
+1. Pulsa Ctrl + F9 para insertar llaves de campo.
+2. Dentro escribe:
+
+   DISPLAYBARCODE "{ MERGEFIELD URL_PUBLICA }" QR \q 3
+
+3. Pulsa Alt + F9 para alternar vista de campos.
+4. Pulsa Actualizar etiquetas.
+
+Importante:
+Las llaves de campo no se escriben con el teclado normal. Deben insertarse con Ctrl + F9.
+
+
+PASO 6 - FINALIZAR
+------------------
+1. Pulsa Vista previa de resultados.
+2. Comprueba que cada etiqueta tiene su numero de serie.
+3. Pulsa Finalizar y combinar.
+4. Imprime.
+
