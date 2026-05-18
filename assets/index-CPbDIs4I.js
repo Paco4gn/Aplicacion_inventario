@@ -403,7 +403,7 @@ ${ee}${bp}
       <td class="label">
         <table class="inner" role="presentation">
           <tr>
-            <td class="qr-cell"><img class="qr" src="${In(G.serial_number)}" alt="QR ${G.serial_number}"/></td>
+            <td class="qr-cell"><img class="qr" width="54" height="54" src="${In(G.serial_number)}" alt="QR ${G.serial_number}"/></td>
             <td class="serial">${G.serial_number}</td>
           </tr>
         </table>
@@ -414,15 +414,15 @@ ${ee}${bp}
 <meta charset="utf-8"/>
 <title>Etiquetas APLI 1272</title>
 <style>
-  @page WordSection1 { size: 210mm 297mm; margin: 8.5mm 0mm 8.5mm 0mm; }
+  @page WordSection1 { size: 595.3pt 841.9pt; margin: 24.1pt 0pt 24.1pt 0pt; }
   div.WordSection1 { page: WordSection1; }
   body { margin: 0; padding: 0; background: #fff; font-family: Arial, sans-serif; }
-  table.sheet { width: 210mm; border-collapse: collapse; table-layout: fixed; }
-  td.label { width: 70mm; height: 35mm; padding: 0; margin: 0; vertical-align: middle; text-align: center; }
-  table.inner { width: 70mm; height: 35mm; border-collapse: collapse; table-layout: fixed; }
-  td.qr-cell { width: 34mm; text-align: right; vertical-align: middle; padding: 0 2mm 0 1mm; }
-  img.qr { width: 24mm; height: 24mm; display: block; margin-left: auto; }
-  td.serial { width: 36mm; text-align: left; vertical-align: middle; padding: 0 1mm 0 1mm; font-family: Arial, sans-serif; font-size: 16pt; font-weight: 700; color: #000; }
+  table.sheet { width: 595.2pt; border-collapse: collapse; table-layout: fixed; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+  td.label { width: 198.4pt; height: 99.2pt; padding: 0pt; margin: 0pt; vertical-align: middle; text-align: center; overflow: hidden; }
+  table.inner { width: 198.4pt; height: 99.2pt; border-collapse: collapse; table-layout: fixed; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+  td.qr-cell { width: 77pt; text-align: right; vertical-align: middle; padding: 0pt 5pt 0pt 0pt; }
+  img.qr { width: 54pt; height: 54pt; display: block; margin-left: auto; }
+  td.serial { width: 121.4pt; text-align: left; vertical-align: middle; padding: 0pt 0pt 0pt 5pt; font-family: Arial, sans-serif; font-size: 11pt; font-weight: 700; color: #000; white-space: nowrap; }
 </style>
 </head>
 <body>
