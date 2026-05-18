@@ -52,12 +52,6 @@ function buildQrUrl(serial: string) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(buildPublicUrl(serial))}`;
 }
 
-function statusLabel(s: string) {
-  if (s === 'active') return 'Activo';
-  if (s === 'repair') return 'En reparacion';
-  return 'Retirado';
-}
-
 function downloadTextFile(filename: string, content: string, type: string) {
   const blob = new Blob(['\uFEFF' + content], { type });
   const url = URL.createObjectURL(blob);
@@ -368,57 +362,6 @@ ${warrantyWarning}${eolWarning}
     ]);
   }
 
-  function handleExportWordLabels() {
-    const list = selectedIds.size > 0
-      ? assets.filter(a => selectedIds.has(a.id))
-      : filtered;
-    if (list.length === 0) {
-      showToast('No hay activos para exportar', 'error');
-      return;
-    }
-
-    const rows = list.map(a => {
-      const employee = currentEmployee(a.id);
-      const publicUrl = buildPublicUrl(a.serial_number);
-      return {
-        N_SERIE: a.serial_number,
-        NOMBRE: a.name,
-        TIPO: a.asset_type,
-        MARCA: a.brand,
-        MODELO: a.model,
-        MARCA_MODELO: `${a.brand} ${a.model}`.trim(),
-        UBICACION: a.location,
-        ESTADO: statusLabel(a.status),
-        ASIGNADO_A: employee?.name ?? '',
-        URL_PUBLICA: publicUrl,
-        QR_URL: buildQrUrl(a.serial_number),
-        TEXTO_ETIQUETA: `${a.serial_number} - ${a.brand} ${a.model}`.trim(),
-        APLI_REFERENCIA: '1272',
-        APLI_MEDIDA: '70 x 35 mm',
-        FECHA_GENERACION: new Date().toLocaleDateString('es-ES'),
-      };
-    });
-
-    exportCSV('destinatarios-etiquetas-apli-1272.csv', rows, [
-      { key: 'N_SERIE', label: 'N_SERIE' },
-      { key: 'NOMBRE', label: 'NOMBRE' },
-      { key: 'TIPO', label: 'TIPO' },
-      { key: 'MARCA', label: 'MARCA' },
-      { key: 'MODELO', label: 'MODELO' },
-      { key: 'MARCA_MODELO', label: 'MARCA_MODELO' },
-      { key: 'UBICACION', label: 'UBICACION' },
-      { key: 'ESTADO', label: 'ESTADO' },
-      { key: 'ASIGNADO_A', label: 'ASIGNADO_A' },
-      { key: 'URL_PUBLICA', label: 'URL_PUBLICA' },
-      { key: 'QR_URL', label: 'QR_URL' },
-      { key: 'TEXTO_ETIQUETA', label: 'TEXTO_ETIQUETA' },
-      { key: 'APLI_REFERENCIA', label: 'APLI_REFERENCIA' },
-      { key: 'APLI_MEDIDA', label: 'APLI_MEDIDA' },
-      { key: 'FECHA_GENERACION', label: 'FECHA_GENERACION' },
-    ]);
-    showToast(`Destinatarios Word exportados: ${rows.length}`);
-  }
-
   function handleExportWordLabelDocument() {
     const list = selectedIds.size > 0
       ? assets.filter(a => selectedIds.has(a.id))
@@ -472,39 +415,6 @@ ${warrantyWarning}${eolWarning}
 
     downloadTextFile('etiquetas-apli-1272-qr.doc', html, 'application/msword;charset=utf-8;');
     showToast(`Word de etiquetas generado: ${list.length}`);
-  }
-
-  function handlePrintAllLabels() {
-    const list = filtered.length > 0 ? filtered : assets;
-    if (list.length === 0) return;
-    const labelsHtml = list.map(a => {
-      const qrSrc = buildQrUrl(a.serial_number);
-      return `<div class="label">
-        <img class="qr" src="${qrSrc}" alt="QR"/>
-        <span class="serial">${a.serial_number}</span>
-      </div>`;
-    }).join('');
-    const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><title>Etiquetas</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0;}
-  @page{size:A4;margin:8mm;}
-  body{font-family:ui-monospace,monospace;background:white;}
-  .grid{display:grid;grid-template-columns:repeat(3,62mm);gap:3mm;}
-  .label{width:62mm;height:29mm;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:3mm;padding:2mm;border:0.5pt solid #ccc;border-radius:2px;}
-  .qr{width:25mm;height:25mm;flex-shrink:0;}
-  .serial{font-size:12pt;font-weight:800;color:#000;letter-spacing:-0.5px;word-break:break-all;line-height:1.2;}
-</style></head><body>
-<div class="grid">${labelsHtml}</div>
-<script>
-  var imgs=document.querySelectorAll('img');
-  var loaded=0;
-  function tryPrint(){loaded++;if(loaded>=imgs.length){window.print();}}
-  imgs.forEach(function(i){if(i.complete){tryPrint();}else{i.onload=tryPrint;i.onerror=tryPrint;}});
-  if(imgs.length===0){window.print();}
-<\/script>
-</body></html>`;
-    printViaIframe(html);
   }
 
   async function handleImportCSV(e: React.ChangeEvent<HTMLInputElement>) {
@@ -585,9 +495,7 @@ ${warrantyWarning}${eolWarning}
           </select>
           <div className="ml-auto flex items-center gap-2">
             <span className="text-sm text-gray-500">{filtered.length} activos</span>
-            <button onClick={handlePrintAllLabels} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Printer size={15} /> Etiquetas</button>
             <button onClick={handleExportWordLabelDocument} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Download size={15} /> Word etiquetas</button>
-            <button onClick={handleExportWordLabels} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Download size={15} /> Word APLI 1272</button>
             <button onClick={handleExportCSV} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Download size={15} /> CSV</button>
             <button onClick={() => fileRef.current?.click()} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Upload size={15} /> Importar</button>
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
