@@ -375,7 +375,7 @@ ${warrantyWarning}${eolWarning}
       <td class="label">
         <table class="inner" role="presentation">
           <tr>
-            <td class="qr-cell"><img class="qr" width="78" height="78" src="${buildQrUrl(a.serial_number)}" alt="QR ${a.serial_number}"/></td>
+            <td class="qr-cell"><img class="qr" width="92" height="92" src="${buildQrUrl(a.serial_number)}" alt="QR ${a.serial_number}"/></td>
             <td class="serial">${a.serial_number}</td>
           </tr>
         </table>
@@ -399,9 +399,9 @@ ${warrantyWarning}${eolWarning}
   table.sheet { width: 595.2pt; border-collapse: collapse; table-layout: fixed; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
   td.label { width: 198.4pt; height: 99.2pt; padding: 0pt; margin: 0pt; vertical-align: middle; text-align: center; overflow: hidden; }
   table.inner { width: 198.4pt; height: 99.2pt; border-collapse: collapse; table-layout: fixed; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
-  td.qr-cell { width: 102pt; text-align: right; vertical-align: middle; padding: 0pt 6pt 0pt 6pt; }
-  img.qr { width: 78pt; height: 78pt; display: block; margin-left: auto; }
-  td.serial { width: 96.4pt; text-align: left; vertical-align: middle; padding: 0pt 6pt 0pt 2pt; font-family: Arial, sans-serif; font-size: 16pt; font-weight: 700; color: #000; white-space: nowrap; }
+  td.qr-cell { width: 108pt; text-align: right; vertical-align: middle; padding: 0pt 2pt 0pt 8pt; }
+  img.qr { width: 92pt; height: 92pt; display: block; margin-left: auto; }
+  td.serial { width: 90.4pt; text-align: left; vertical-align: middle; padding: 0pt 2pt 0pt 2pt; font-family: Arial, sans-serif; font-size: 18pt; font-weight: 700; color: #000; white-space: nowrap; }
 </style>
 </head>
 <body>
