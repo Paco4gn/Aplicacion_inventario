@@ -46,7 +46,7 @@ Deno.serve(async (req: Request) => {
     const [{ data: incident, error: incidentError }, { data: recipients, error: recipientsError }] = await Promise.all([
       supabase
         .from("incidents")
-        .select("*, asset:assets(serial_number,brand,model,location), employee:employees(name,email)")
+        .select("*, asset:assets(serial_number,brand,model,location)")
         .eq("id", incident_id)
         .maybeSingle(),
       supabase
@@ -60,14 +60,25 @@ Deno.serve(async (req: Request) => {
     if (!incident) return json({ error: "incident_not_found" }, 404);
 
     let assignedTo: { name?: string; email?: string } | null = null;
-    if (incident.assigned_to_id) {
-      const { data: employee } = await supabase
-        .from("employees")
-        .select("name,email")
-        .eq("id", incident.assigned_to_id)
-        .maybeSingle();
-      assignedTo = employee;
-    }
+    let employee: { name?: string; email?: string } | null = null;
+    const [assignedResult, employeeResult] = await Promise.all([
+      incident.assigned_to_id
+        ? supabase
+          .from("employees")
+          .select("name,email")
+          .eq("id", incident.assigned_to_id)
+          .maybeSingle()
+        : Promise.resolve({ data: null }),
+      incident.employee_id
+        ? supabase
+          .from("employees")
+          .select("name,email")
+          .eq("id", incident.employee_id)
+          .maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+    assignedTo = assignedResult.data;
+    employee = employeeResult.data;
 
     const to = Array.from(new Set((recipients ?? []).map((r) => r.email).filter(Boolean)));
     const assignedEmail = assignedTo?.email;
@@ -82,7 +93,6 @@ Deno.serve(async (req: Request) => {
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
     const from = Deno.env.get("INCIDENT_EMAIL_FROM") ?? "IT Inventario <onboarding@resend.dev>";
     const asset = incident.asset;
-    const employee = incident.employee;
     const eventLabel = event === "created" ? "Nueva incidencia" : event === "assigned" ? "Incidencia asignada" : "Incidencia actualizada";
     const subject = `[IT Inventario] ${eventLabel}: ${incident.title}`;
     const details = [
