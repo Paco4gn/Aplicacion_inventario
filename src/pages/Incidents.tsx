@@ -73,14 +73,24 @@ export function Incidents() {
   const [bulkStatus, setBulkStatus] = useState<Incident['status']>('closed');
 
   async function load() {
-    const [{ data: inc }, { data: a }, { data: e }] = await Promise.all([
+    const [{ data: inc, error: incError }, { data: a }, { data: e }, { data: allEmployees }] = await Promise.all([
       supabase.from('incidents')
-        .select('*, asset:assets(serial_number,brand,model), employee:employees(name), assigned_to:employees!incidents_assigned_to_id_fkey(name,email)')
+        .select('*, asset:assets(serial_number,brand,model), employee:employees(name)')
         .order('opened_at', { ascending: false }),
       supabase.from('assets').select('id,serial_number,brand,model').order('serial_number'),
       supabase.from('employees').select('id,name,email').eq('active', true).order('name'),
+      supabase.from('employees').select('id,name,email').order('name'),
     ]);
-    setIncidents(inc ?? []);
+    if (incError) {
+      showToast(`Error cargando incidencias: ${incError.message}`, 'error');
+      setLoading(false);
+      return;
+    }
+    const employeeMap = new Map((allEmployees ?? []).map(employee => [employee.id, employee]));
+    setIncidents((inc ?? []).map(incident => ({
+      ...incident,
+      assigned_to: incident.assigned_to_id ? employeeMap.get(incident.assigned_to_id) ?? null : null,
+    })) as Incident[]);
     setAssets(a ?? []);
     setEmployees(e ?? []);
     setLoading(false);

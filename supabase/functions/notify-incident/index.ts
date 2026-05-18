@@ -46,7 +46,7 @@ Deno.serve(async (req: Request) => {
     const [{ data: incident, error: incidentError }, { data: recipients, error: recipientsError }] = await Promise.all([
       supabase
         .from("incidents")
-        .select("*, asset:assets(serial_number,brand,model,location), employee:employees(name,email), assigned_to:employees!incidents_assigned_to_id_fkey(name,email)")
+        .select("*, asset:assets(serial_number,brand,model,location), employee:employees(name,email)")
         .eq("id", incident_id)
         .maybeSingle(),
       supabase
@@ -59,8 +59,18 @@ Deno.serve(async (req: Request) => {
     if (recipientsError) throw recipientsError;
     if (!incident) return json({ error: "incident_not_found" }, 404);
 
+    let assignedTo: { name?: string; email?: string } | null = null;
+    if (incident.assigned_to_id) {
+      const { data: employee } = await supabase
+        .from("employees")
+        .select("name,email")
+        .eq("id", incident.assigned_to_id)
+        .maybeSingle();
+      assignedTo = employee;
+    }
+
     const to = Array.from(new Set((recipients ?? []).map((r) => r.email).filter(Boolean)));
-    const assignedEmail = incident.assigned_to?.email;
+    const assignedEmail = assignedTo?.email;
     if (assignedEmail) to.push(assignedEmail);
     const uniqueTo = Array.from(new Set(to));
 
@@ -72,7 +82,6 @@ Deno.serve(async (req: Request) => {
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
     const from = Deno.env.get("INCIDENT_EMAIL_FROM") ?? "IT Inventario <onboarding@resend.dev>";
     const asset = incident.asset;
-    const assignedTo = incident.assigned_to;
     const employee = incident.employee;
     const eventLabel = event === "created" ? "Nueva incidencia" : event === "assigned" ? "Incidencia asignada" : "Incidencia actualizada";
     const subject = `[IT Inventario] ${eventLabel}: ${incident.title}`;
