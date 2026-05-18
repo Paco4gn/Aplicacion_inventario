@@ -61,6 +61,7 @@ export interface Incident {
   description: string;
   asset_id: string | null;
   employee_id: string | null;
+  assigned_to_id: string | null;
   status: IncidentStatus;
   priority: IncidentPriority;
   resolution: string;
@@ -70,6 +71,16 @@ export interface Incident {
   updated_at: string;
   asset?: Asset | null;
   employee?: Employee | null;
+  assigned_to?: Employee | null;
+}
+
+export interface IncidentNotificationRecipient {
+  id: string;
+  email: string;
+  name: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Software {

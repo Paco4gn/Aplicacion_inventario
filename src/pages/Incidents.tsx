@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, CheckCircle, Download, CheckSquare, Square, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, CheckCircle, Download, CheckSquare, Square, X, Settings, Mail, Bell } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAction } from '../lib/audit';
 import { exportCSV } from '../lib/csv';
@@ -10,11 +10,11 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { SearchInput } from '../components/ui/SearchInput';
 import { Pagination } from '../components/ui/Pagination';
 import { SkeletonRow } from '../components/ui/SkeletonRow';
-import type { Incident, Asset, Employee } from '../types';
+import type { Incident, Asset, Employee, IncidentNotificationRecipient } from '../types';
 
 const PAGE_SIZE = 15;
 type AssetOption = Pick<Asset, 'id' | 'serial_number' | 'brand' | 'model'>;
-type EmployeeOption = Pick<Employee, 'id' | 'name'>;
+type EmployeeOption = Pick<Employee, 'id' | 'name' | 'email'>;
 
 const PRIORITIES = [
   { value: 'low', label: 'Baja' },
@@ -30,9 +30,11 @@ const STATUSES = [
 ];
 
 const emptyIncident: Partial<Incident> = {
-  title: '', description: '', asset_id: null, employee_id: null,
+  title: '', description: '', asset_id: null, employee_id: null, assigned_to_id: null,
   status: 'open', priority: 'medium', resolution: '',
 };
+
+const emptyRecipient: Partial<IncidentNotificationRecipient> = { email: '', name: '', enabled: true };
 
 function priorityBadge(p: string) {
   if (p === 'critical') return <Badge variant="danger">Crítica</Badge>;
@@ -60,8 +62,12 @@ export function Incidents() {
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<Incident>>(emptyIncident);
+  const [editingRecipient, setEditingRecipient] = useState<Partial<IncidentNotificationRecipient>>(emptyRecipient);
   const [selected, setSelected] = useState<Incident | null>(null);
+  const [recipients, setRecipients] = useState<IncidentNotificationRecipient[]>([]);
+  const [notificationReady, setNotificationReady] = useState(true);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<Incident['status']>('closed');
@@ -69,10 +75,10 @@ export function Incidents() {
   async function load() {
     const [{ data: inc }, { data: a }, { data: e }] = await Promise.all([
       supabase.from('incidents')
-        .select('*, asset:assets(serial_number,brand,model), employee:employees(name)')
+        .select('*, asset:assets(serial_number,brand,model), employee:employees(name), assigned_to:employees!incidents_assigned_to_id_fkey(name,email)')
         .order('opened_at', { ascending: false }),
       supabase.from('assets').select('id,serial_number,brand,model').order('serial_number'),
-      supabase.from('employees').select('id,name').eq('active', true).order('name'),
+      supabase.from('employees').select('id,name,email').eq('active', true).order('name'),
     ]);
     setIncidents(inc ?? []);
     setAssets(a ?? []);
@@ -80,7 +86,21 @@ export function Incidents() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, []);
+  async function loadRecipients() {
+    const { data, error } = await supabase
+      .from('incident_notification_recipients')
+      .select('*')
+      .order('enabled', { ascending: false })
+      .order('email');
+    if (error) {
+      setNotificationReady(false);
+      return;
+    }
+    setNotificationReady(true);
+    setRecipients(data ?? []);
+  }
+
+  useEffect(() => { load(); loadRecipients(); }, []);
   useEffect(() => { setPage(1); setSelectedIds(new Set()); }, [search, filterStatus, filterPriority]);
 
   const filtered = incidents.filter(i => {
@@ -89,7 +109,8 @@ export function Incidents() {
       || i.title.toLowerCase().includes(q)
       || i.description.toLowerCase().includes(q)
       || ((i.asset as { serial_number?: string } | null)?.serial_number ?? '').toLowerCase().includes(q)
-      || ((i.employee as { name?: string } | null)?.name ?? '').toLowerCase().includes(q);
+      || ((i.employee as { name?: string } | null)?.name ?? '').toLowerCase().includes(q)
+      || ((i.assigned_to as { name?: string } | null)?.name ?? '').toLowerCase().includes(q);
     return matchSearch
       && (!filterStatus || i.status === filterStatus)
       && (!filterPriority || i.priority === filterPriority);
@@ -114,12 +135,22 @@ export function Incidents() {
 
   function clearSelection() { setSelectedIds(new Set()); }
 
+  async function notifyIncident(incidentId: string, event: 'created' | 'updated' | 'assigned') {
+    try {
+      await supabase.functions.invoke('notify-incident', { body: { incident_id: incidentId, event } });
+    } catch {
+      // El correo no debe bloquear la creacion o edicion de incidencias.
+    }
+  }
+
   async function save() {
     if (!editing.title?.trim()) { showToast('Título es obligatorio', 'error'); return; }
+    const previous = editing.id ? incidents.find(i => i.id === editing.id) : null;
     const payload = {
       ...editing,
       asset_id: editing.asset_id || null,
       employee_id: editing.employee_id || null,
+      assigned_to_id: editing.assigned_to_id || null,
       closed_at: editing.status === 'closed' ? (editing.closed_at ?? new Date().toISOString()) : null,
     };
     if (editing.id) {
@@ -129,14 +160,53 @@ export function Incidents() {
       if (error) { showToast('Error al actualizar', 'error'); return; }
       await logAction('updated', 'incident', editing.id, editing.title ?? '');
       showToast('Incidencia actualizada');
+      if (previous?.assigned_to_id !== payload.assigned_to_id || previous?.status !== payload.status || previous?.priority !== payload.priority) {
+        notifyIncident(editing.id, previous?.assigned_to_id !== payload.assigned_to_id ? 'assigned' : 'updated');
+      }
     } else {
       const { data, error } = await supabase.from('incidents').insert([payload]).select().maybeSingle();
       if (error) { showToast('Error al crear', 'error'); return; }
       if (data) await logAction('created', 'incident', data.id, data.title);
       showToast('Incidencia creada');
+      if (data) notifyIncident(data.id, 'created');
     }
     setModalOpen(false);
     load();
+  }
+
+  async function saveRecipient() {
+    const email = editingRecipient.email?.trim().toLowerCase();
+    if (!email) { showToast('Email obligatorio', 'error'); return; }
+    const payload = {
+      email,
+      name: editingRecipient.name?.trim() ?? '',
+      enabled: editingRecipient.enabled ?? true,
+      updated_at: new Date().toISOString(),
+    };
+    const query = editingRecipient.id
+      ? supabase.from('incident_notification_recipients').update(payload).eq('id', editingRecipient.id)
+      : supabase.from('incident_notification_recipients').insert([payload]);
+    const { error } = await query;
+    if (error) { showToast('No se pudo guardar el correo', 'error'); return; }
+    setEditingRecipient(emptyRecipient);
+    showToast('Correo de aviso guardado');
+    loadRecipients();
+  }
+
+  async function toggleRecipient(recipient: IncidentNotificationRecipient) {
+    const { error } = await supabase
+      .from('incident_notification_recipients')
+      .update({ enabled: !recipient.enabled, updated_at: new Date().toISOString() })
+      .eq('id', recipient.id);
+    if (error) { showToast('No se pudo actualizar el correo', 'error'); return; }
+    loadRecipients();
+  }
+
+  async function deleteRecipient(recipient: IncidentNotificationRecipient) {
+    const { error } = await supabase.from('incident_notification_recipients').delete().eq('id', recipient.id);
+    if (error) { showToast('No se pudo eliminar el correo', 'error'); return; }
+    showToast('Correo eliminado', 'warning');
+    loadRecipients();
   }
 
   async function closeIncident(inc: Incident) {
@@ -145,6 +215,7 @@ export function Incidents() {
       .eq('id', inc.id);
     await logAction('closed', 'incident', inc.id, inc.title);
     showToast('Incidencia cerrada');
+    notifyIncident(inc.id, 'updated');
     load();
   }
 
@@ -182,6 +253,7 @@ export function Incidents() {
       { key: 'title', label: 'Título' },
       { key: 'priority', label: 'Prioridad' },
       { key: 'status', label: 'Estado' },
+      { key: 'assigned_to_id', label: 'Responsable ID' },
       { key: 'description', label: 'Descripción' },
       { key: 'resolution', label: 'Resolución' },
       { key: 'opened_at', label: 'Apertura' },
@@ -228,6 +300,9 @@ export function Incidents() {
         </select>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-sm text-gray-500">{filtered.length} incidencias</span>
+          <button onClick={() => { setSettingsOpen(true); loadRecipients(); }} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors">
+            <Settings size={15} /> Avisos
+          </button>
           <button onClick={handleExport} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors">
             <Download size={15} /> CSV
           </button>
@@ -253,6 +328,7 @@ export function Incidents() {
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Título</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Activo</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Empleado</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Responsable</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Prioridad</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Estado</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Apertura</th>
@@ -261,7 +337,7 @@ export function Incidents() {
             </thead>
             <tbody>
               {loading
-                ? Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} cols={8} />)
+                ? Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} cols={9} />)
                 : paginated.map(inc => {
                     const isChecked = selectedIds.has(inc.id);
                     return (
@@ -277,6 +353,9 @@ export function Incidents() {
                         </td>
                         <td className="px-4 py-3 text-gray-600">
                           {(inc.employee as { name?: string } | null)?.name ?? '—'}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {(inc.assigned_to as { name?: string } | null)?.name ?? <span className="text-gray-400 italic">Sin asignar</span>}
                         </td>
                         <td className="px-4 py-3">{priorityBadge(inc.priority)}</td>
                         <td className="px-4 py-3">{statusBadge(inc.status)}</td>
@@ -301,7 +380,7 @@ export function Incidents() {
                   })
               }
               {!loading && paginated.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">No se encontraron incidencias</td></tr>
+                <tr><td colSpan={9} className="px-4 py-10 text-center text-gray-400">No se encontraron incidencias</td></tr>
               )}
             </tbody>
           </table>
@@ -335,6 +414,13 @@ export function Incidents() {
               </select>
             </div>
             <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Responsable</label>
+              <select value={editing.assigned_to_id ?? ''} onChange={e => setEditing(p => ({ ...p, assigned_to_id: e.target.value || null }))} className="input">
+                <option value="">Sin responsable</option>
+                {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+            </div>
+            <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Prioridad</label>
               <select value={editing.priority ?? 'medium'} onChange={e => setEditing(p => ({ ...p, priority: e.target.value as Incident['priority'] }))} className="input">
                 {PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
@@ -355,6 +441,83 @@ export function Incidents() {
         <div className="flex justify-end gap-3 mt-5">
           <button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button>
           <button onClick={save} className="btn-primary">Guardar</button>
+        </div>
+      </Modal>
+
+      <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Avisos de Incidencias" size="lg">
+        <div className="space-y-5">
+          {!notificationReady && (
+            <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <Bell size={18} className="mt-0.5 flex-shrink-0" />
+              <p>Falta aplicar la actualizacion de Supabase para activar la configuracion de avisos.</p>
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Correo</label>
+              <input
+                type="email"
+                value={editingRecipient.email ?? ''}
+                onChange={e => setEditingRecipient(p => ({ ...p, email: e.target.value }))}
+                className="input"
+                placeholder="soporte@feval.com"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Nombre</label>
+              <input
+                value={editingRecipient.name ?? ''}
+                onChange={e => setEditingRecipient(p => ({ ...p, name: e.target.value }))}
+                className="input"
+                placeholder="Equipo soporte"
+              />
+            </div>
+            <button onClick={saveRecipient} className="btn-primary whitespace-nowrap">
+              {editingRecipient.id ? 'Guardar' : 'Añadir'}
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-gray-100 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="text-left px-4 py-3 text-gray-500 font-medium">Correo</th>
+                  <th className="text-left px-4 py-3 text-gray-500 font-medium">Nombre</th>
+                  <th className="text-left px-4 py-3 text-gray-500 font-medium">Estado</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {recipients.map(recipient => (
+                  <tr key={recipient.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium text-gray-800">
+                      <span className="inline-flex items-center gap-2"><Mail size={14} className="text-gray-400" /> {recipient.email}</span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">{recipient.name || '—'}</td>
+                    <td className="px-4 py-3">
+                      <button onClick={() => toggleRecipient(recipient)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${recipient.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {recipient.enabled ? 'Activo' : 'Pausado'}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1">
+                        <button onClick={() => setEditingRecipient(recipient)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors">
+                          <Pencil size={15} />
+                        </button>
+                        <button onClick={() => deleteRecipient(recipient)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {recipients.length === 0 && (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No hay correos configurados</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-gray-400">Se avisara al crear una incidencia, cambiar prioridad/estado o asignar un responsable.</p>
         </div>
       </Modal>
 

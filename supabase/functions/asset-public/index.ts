@@ -119,6 +119,19 @@ Deno.serve(async (req: Request) => {
         performed_by: "public",
       }]);
 
+      try {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/notify-incident`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ incident_id: incident?.id, event: "created" }),
+        });
+      } catch (_) {
+        // Best-effort notification. Public reporting should still succeed.
+      }
+
       return json({ success: true, incident_id: incident?.id });
     }
 
