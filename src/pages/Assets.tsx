@@ -58,6 +58,16 @@ function statusLabel(s: string) {
   return 'Retirado';
 }
 
+function downloadTextFile(filename: string, content: string, type: string) {
+  const blob = new Blob(['\uFEFF' + content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function buildLabelHtml(serial: string, qrSrc: string): string {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/>
@@ -409,6 +419,61 @@ ${warrantyWarning}${eolWarning}
     showToast(`Destinatarios Word exportados: ${rows.length}`);
   }
 
+  function handleExportWordLabelDocument() {
+    const list = selectedIds.size > 0
+      ? assets.filter(a => selectedIds.has(a.id))
+      : filtered;
+    if (list.length === 0) {
+      showToast('No hay activos para exportar', 'error');
+      return;
+    }
+
+    const labelsHtml = list.map(a => `
+      <td class="label">
+        <table class="inner" role="presentation">
+          <tr>
+            <td class="qr-cell"><img class="qr" src="${buildQrUrl(a.serial_number)}" alt="QR ${a.serial_number}"/></td>
+            <td class="serial">${a.serial_number}</td>
+          </tr>
+        </table>
+      </td>
+    `);
+
+    const rows: string[] = [];
+    for (let i = 0; i < labelsHtml.length; i += 3) {
+      rows.push(`<tr>${labelsHtml.slice(i, i + 3).join('')}${'<td class="label"></td>'.repeat(Math.max(0, 3 - labelsHtml.slice(i, i + 3).length))}</tr>`);
+    }
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Etiquetas APLI 1272</title>
+<style>
+  @page WordSection1 { size: 210mm 297mm; margin: 8.5mm 0mm 8.5mm 0mm; }
+  div.WordSection1 { page: WordSection1; }
+  body { margin: 0; padding: 0; background: #fff; font-family: Arial, sans-serif; }
+  table.sheet { width: 210mm; border-collapse: collapse; table-layout: fixed; }
+  td.label { width: 70mm; height: 35mm; padding: 0; margin: 0; vertical-align: middle; text-align: center; }
+  table.inner { width: 70mm; height: 35mm; border-collapse: collapse; table-layout: fixed; }
+  td.qr-cell { width: 34mm; text-align: right; vertical-align: middle; padding: 0 2mm 0 1mm; }
+  img.qr { width: 24mm; height: 24mm; display: block; margin-left: auto; }
+  td.serial { width: 36mm; text-align: left; vertical-align: middle; padding: 0 1mm 0 1mm; font-family: Arial, sans-serif; font-size: 16pt; font-weight: 700; color: #000; }
+</style>
+</head>
+<body>
+<div class="WordSection1">
+  <table class="sheet" role="presentation">
+    ${rows.join('\n')}
+  </table>
+</div>
+</body>
+</html>`;
+
+    downloadTextFile('etiquetas-apli-1272-qr.doc', html, 'application/msword;charset=utf-8;');
+    showToast(`Word de etiquetas generado: ${list.length}`);
+  }
+
   function handlePrintAllLabels() {
     const list = filtered.length > 0 ? filtered : assets;
     if (list.length === 0) return;
@@ -521,6 +586,7 @@ ${warrantyWarning}${eolWarning}
           <div className="ml-auto flex items-center gap-2">
             <span className="text-sm text-gray-500">{filtered.length} activos</span>
             <button onClick={handlePrintAllLabels} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Printer size={15} /> Etiquetas</button>
+            <button onClick={handleExportWordLabelDocument} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Download size={15} /> Word etiquetas</button>
             <button onClick={handleExportWordLabels} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Download size={15} /> Word APLI 1272</button>
             <button onClick={handleExportCSV} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Download size={15} /> CSV</button>
             <button onClick={() => fileRef.current?.click()} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Upload size={15} /> Importar</button>
