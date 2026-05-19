@@ -62,6 +62,8 @@ export interface Incident {
   asset_id: string | null;
   employee_id: string | null;
   assigned_to_id: string | null;
+  assigned_to_email?: string | null;
+  assigned_to_name?: string | null;
   status: IncidentStatus;
   priority: IncidentPriority;
   resolution: string;

@@ -31,6 +31,7 @@ const STATUSES = [
 
 const emptyIncident: Partial<Incident> = {
   title: '', description: '', asset_id: null, employee_id: null, assigned_to_id: null,
+  assigned_to_email: null, assigned_to_name: null,
   status: 'open', priority: 'medium', resolution: '',
 };
 
@@ -73,13 +74,14 @@ export function Incidents() {
   const [bulkStatus, setBulkStatus] = useState<Incident['status']>('closed');
 
   async function load() {
-    const [{ data: inc, error: incError }, { data: a }, { data: e }, { data: allEmployees }] = await Promise.all([
+    const [{ data: inc, error: incError }, { data: a }, { data: e }, { data: allEmployees }, { data: notificationRecipients }] = await Promise.all([
       supabase.from('incidents')
         .select('*, asset:assets(serial_number,brand,model)')
         .order('opened_at', { ascending: false }),
       supabase.from('assets').select('id,serial_number,brand,model').order('serial_number'),
       supabase.from('employees').select('id,name,email').eq('active', true).order('name'),
       supabase.from('employees').select('id,name,email').order('name'),
+      supabase.from('incident_notification_recipients').select('email,name,enabled').eq('enabled', true),
     ]);
     if (incError) {
       showToast(`Error cargando incidencias: ${incError.message}`, 'error');
@@ -87,10 +89,17 @@ export function Incidents() {
       return;
     }
     const employeeMap = new Map((allEmployees ?? []).map(employee => [employee.id, employee]));
+    const recipientMap = new Map((notificationRecipients ?? []).map(recipient => [recipient.email.toLowerCase(), recipient]));
     setIncidents((inc ?? []).map(incident => ({
       ...incident,
       employee: incident.employee_id ? employeeMap.get(incident.employee_id) ?? null : null,
-      assigned_to: incident.assigned_to_id ? employeeMap.get(incident.assigned_to_id) ?? null : null,
+      assigned_to: incident.assigned_to_email
+        ? {
+          id: incident.assigned_to_email,
+          email: incident.assigned_to_email,
+          name: incident.assigned_to_name || recipientMap.get(incident.assigned_to_email.toLowerCase())?.name || incident.assigned_to_email,
+        } as Employee
+        : incident.assigned_to_id ? employeeMap.get(incident.assigned_to_id) ?? null : null,
     })) as Incident[]);
     setAssets(a ?? []);
     setEmployees(e ?? []);
@@ -161,7 +170,9 @@ export function Incidents() {
       ...editing,
       asset_id: editing.asset_id || null,
       employee_id: editing.employee_id || null,
-      assigned_to_id: editing.assigned_to_id || null,
+      assigned_to_id: null,
+      assigned_to_email: editing.assigned_to_email || null,
+      assigned_to_name: editing.assigned_to_name || null,
       closed_at: editing.status === 'closed' ? (editing.closed_at ?? new Date().toISOString()) : null,
     };
     if (editing.id) {
@@ -171,8 +182,8 @@ export function Incidents() {
       if (error) { showToast('Error al actualizar', 'error'); return; }
       await logAction('updated', 'incident', editing.id, editing.title ?? '');
       showToast('Incidencia actualizada');
-      if (previous?.assigned_to_id !== payload.assigned_to_id || previous?.status !== payload.status || previous?.priority !== payload.priority) {
-        notifyIncident(editing.id, previous?.assigned_to_id !== payload.assigned_to_id ? 'assigned' : 'updated');
+      if (previous?.assigned_to_email !== payload.assigned_to_email || previous?.status !== payload.status || previous?.priority !== payload.priority) {
+        notifyIncident(editing.id, previous?.assigned_to_email !== payload.assigned_to_email ? 'assigned' : 'updated');
       }
     } else {
       const { data, error } = await supabase.from('incidents').insert([payload]).select().maybeSingle();
@@ -264,7 +275,7 @@ export function Incidents() {
       { key: 'title', label: 'Título' },
       { key: 'priority', label: 'Prioridad' },
       { key: 'status', label: 'Estado' },
-      { key: 'assigned_to_id', label: 'Responsable ID' },
+      { key: 'assigned_to_email', label: 'Responsable' },
       { key: 'description', label: 'Descripción' },
       { key: 'resolution', label: 'Resolución' },
       { key: 'opened_at', label: 'Apertura' },
@@ -426,9 +437,23 @@ export function Incidents() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Responsable</label>
-              <select value={editing.assigned_to_id ?? ''} onChange={e => setEditing(p => ({ ...p, assigned_to_id: e.target.value || null }))} className="input">
+              <select
+                value={editing.assigned_to_email ?? ''}
+                onChange={e => {
+                  const recipient = recipients.find(r => r.email === e.target.value);
+                  setEditing(p => ({
+                    ...p,
+                    assigned_to_id: null,
+                    assigned_to_email: recipient?.email ?? null,
+                    assigned_to_name: recipient?.name || recipient?.email || null,
+                  }));
+                }}
+                className="input"
+              >
                 <option value="">Sin responsable</option>
-                {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                {recipients
+                  .filter(r => r.enabled)
+                  .map(r => <option key={r.id} value={r.email}>{r.name || r.email}</option>)}
               </select>
             </div>
             <div>

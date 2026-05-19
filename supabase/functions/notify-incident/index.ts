@@ -59,16 +59,14 @@ Deno.serve(async (req: Request) => {
     if (recipientsError) throw recipientsError;
     if (!incident) return json({ error: "incident_not_found" }, 404);
 
-    let assignedTo: { name?: string; email?: string } | null = null;
     let employee: { name?: string; email?: string } | null = null;
-    const [assignedResult, employeeResult] = await Promise.all([
-      incident.assigned_to_id
-        ? supabase
-          .from("employees")
-          .select("name,email")
-          .eq("id", incident.assigned_to_id)
-          .maybeSingle()
-        : Promise.resolve({ data: null }),
+    const assignedTo = incident.assigned_to_email
+      ? {
+        email: incident.assigned_to_email,
+        name: incident.assigned_to_name || incident.assigned_to_email,
+      }
+      : null;
+    const [employeeResult] = await Promise.all([
       incident.employee_id
         ? supabase
           .from("employees")
@@ -77,7 +75,6 @@ Deno.serve(async (req: Request) => {
           .maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
-    assignedTo = assignedResult.data;
     employee = employeeResult.data;
 
     const to = Array.from(new Set((recipients ?? []).map((r) => r.email).filter(Boolean)));
