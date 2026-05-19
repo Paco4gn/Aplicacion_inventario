@@ -132,6 +132,14 @@ Deno.serve(async (req: Request) => {
 
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
+      await supabase.from("audit_logs").insert([{
+        action: "email_failed",
+        entity_type: "incident",
+        entity_id: incident.id,
+        entity_name: incident.title,
+        details: { to: uniqueTo, event, status: response.status, provider_error: result },
+        performed_by: "notify-incident",
+      }]);
       return json({ sent: false, error: result }, 502);
     }
 

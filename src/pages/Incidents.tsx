@@ -157,9 +157,14 @@ export function Incidents() {
 
   async function notifyIncident(incidentId: string, event: 'created' | 'updated' | 'assigned') {
     try {
-      await supabase.functions.invoke('notify-incident', { body: { incident_id: incidentId, event } });
-    } catch {
-      // El correo no debe bloquear la creacion o edicion de incidencias.
+      const { data, error } = await supabase.functions.invoke('notify-incident', { body: { incident_id: incidentId, event } });
+      if (error || data?.sent === false) {
+        const providerMessage = data?.error?.message ?? data?.reason ?? error?.message ?? 'No se pudo enviar el aviso';
+        showToast(`Incidencia guardada, pero no se envio el correo: ${providerMessage}`, 'warning');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo enviar el aviso';
+      showToast(`Incidencia guardada, pero no se envio el correo: ${message}`, 'warning');
     }
   }
 
@@ -183,14 +188,14 @@ export function Incidents() {
       await logAction('updated', 'incident', editing.id, editing.title ?? '');
       showToast('Incidencia actualizada');
       if (previous?.assigned_to_email !== payload.assigned_to_email || previous?.status !== payload.status || previous?.priority !== payload.priority) {
-        notifyIncident(editing.id, previous?.assigned_to_email !== payload.assigned_to_email ? 'assigned' : 'updated');
+        await notifyIncident(editing.id, previous?.assigned_to_email !== payload.assigned_to_email ? 'assigned' : 'updated');
       }
     } else {
       const { data, error } = await supabase.from('incidents').insert([payload]).select().maybeSingle();
       if (error) { showToast('Error al crear', 'error'); return; }
       if (data) await logAction('created', 'incident', data.id, data.title);
       showToast('Incidencia creada');
-      if (data) notifyIncident(data.id, 'created');
+      if (data) await notifyIncident(data.id, 'created');
     }
     setModalOpen(false);
     load();
@@ -237,7 +242,7 @@ export function Incidents() {
       .eq('id', inc.id);
     await logAction('closed', 'incident', inc.id, inc.title);
     showToast('Incidencia cerrada');
-    notifyIncident(inc.id, 'updated');
+    await notifyIncident(inc.id, 'updated');
     load();
   }
 
