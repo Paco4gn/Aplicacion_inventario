@@ -51,6 +51,33 @@ async function sendWithResend(from: string, to: string[], subject: string, text:
   return { ok: response.ok, status: response.status, result };
 }
 
+async function sendWithSendGrid(from: string, to: string[], subject: string, text: string) {
+  const sendGridApiKey = Deno.env.get("SENDGRID_API_KEY");
+  if (!sendGridApiKey) return { ok: false, status: 400, result: { message: "missing_SENDGRID_API_KEY" } };
+
+  const senderEmail = extractEmail(from);
+  const senderName = from.includes("<") ? from.replace(/<[^>]+>/, "").trim() : "IT Inventario";
+
+  const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${sendGridApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      personalizations: [{ to: to.map((email) => ({ email })) }],
+      from: { email: senderEmail, name: senderName || "IT Inventario" },
+      subject,
+      content: [{ type: "text/plain", value: text }],
+    }),
+  });
+
+  const result = response.status === 202
+    ? { id: response.headers.get("x-message-id") ?? `sendgrid-${Date.now()}` }
+    : await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, result };
+}
+
 async function sendWithMicrosoftGraph(from: string, to: string[], subject: string, text: string) {
   const tenantId = Deno.env.get("MS_TENANT_ID");
   const clientId = Deno.env.get("MS_CLIENT_ID");
@@ -177,7 +204,9 @@ Deno.serve(async (req: Request) => {
     const provider = (Deno.env.get("MAIL_PROVIDER") ?? (Deno.env.get("MS_TENANT_ID") ? "graph" : "resend")).toLowerCase();
     const sendResult = provider === "graph"
       ? await sendWithMicrosoftGraph(from, uniqueTo, subject, details)
-      : await sendWithResend(from, uniqueTo, subject, details);
+      : provider === "sendgrid"
+        ? await sendWithSendGrid(from, uniqueTo, subject, details)
+        : await sendWithResend(from, uniqueTo, subject, details);
 
     if (sendResult.status === 400 && typeof sendResult.result === "object" && "message" in sendResult.result) {
       await supabase.from("audit_logs").insert([{
