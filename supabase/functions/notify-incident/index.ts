@@ -78,6 +78,32 @@ async function sendWithSendGrid(from: string, to: string[], subject: string, tex
   return { ok: response.ok, status: response.status, result };
 }
 
+async function sendWithBrevo(from: string, to: string[], subject: string, text: string) {
+  const brevoApiKey = Deno.env.get("BREVO_API_KEY");
+  if (!brevoApiKey) return { ok: false, status: 400, result: { message: "missing_BREVO_API_KEY" } };
+
+  const senderEmail = extractEmail(from);
+  const senderName = from.includes("<") ? from.replace(/<[^>]+>/, "").trim() : "IT Inventario";
+
+  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "api-key": brevoApiKey,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      sender: { email: senderEmail, name: senderName || "IT Inventario" },
+      to: to.map((email) => ({ email })),
+      subject,
+      textContent: text,
+    }),
+  });
+
+  const result = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, result };
+}
+
 async function sendWithMicrosoftGraph(from: string, to: string[], subject: string, text: string) {
   const tenantId = Deno.env.get("MS_TENANT_ID");
   const clientId = Deno.env.get("MS_CLIENT_ID");
@@ -206,6 +232,8 @@ Deno.serve(async (req: Request) => {
       ? await sendWithMicrosoftGraph(from, uniqueTo, subject, details)
       : provider === "sendgrid"
         ? await sendWithSendGrid(from, uniqueTo, subject, details)
+        : provider === "brevo"
+          ? await sendWithBrevo(from, uniqueTo, subject, details)
         : await sendWithResend(from, uniqueTo, subject, details);
 
     if (sendResult.status === 400 && typeof sendResult.result === "object" && "message" in sendResult.result) {
