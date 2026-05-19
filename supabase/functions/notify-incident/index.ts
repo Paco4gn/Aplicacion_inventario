@@ -29,6 +29,77 @@ function priorityLabel(priority: string) {
   return priority;
 }
 
+function extractEmail(from: string) {
+  const match = from.match(/<([^>]+)>/);
+  return (match?.[1] ?? from).trim();
+}
+
+async function sendWithResend(from: string, to: string[], subject: string, text: string) {
+  const resendApiKey = Deno.env.get("RESEND_API_KEY");
+  if (!resendApiKey) return { ok: false, status: 400, result: { message: "missing_RESEND_API_KEY" } };
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resendApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from, to, subject, text }),
+  });
+
+  const result = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, result };
+}
+
+async function sendWithMicrosoftGraph(from: string, to: string[], subject: string, text: string) {
+  const tenantId = Deno.env.get("MS_TENANT_ID");
+  const clientId = Deno.env.get("MS_CLIENT_ID");
+  const clientSecret = Deno.env.get("MS_CLIENT_SECRET");
+  const sender = Deno.env.get("MS_SENDER_EMAIL") ?? extractEmail(from);
+
+  if (!tenantId || !clientId || !clientSecret || !sender) {
+    return {
+      ok: false,
+      status: 400,
+      result: { message: "missing_MS_TENANT_ID_MS_CLIENT_ID_MS_CLIENT_SECRET_or_sender" },
+    };
+  }
+
+  const tokenBody = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    scope: "https://graph.microsoft.com/.default",
+    grant_type: "client_credentials",
+  });
+
+  const tokenResponse = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: tokenBody,
+  });
+  const tokenResult = await tokenResponse.json().catch(() => ({}));
+  if (!tokenResponse.ok) return { ok: false, status: tokenResponse.status, result: tokenResult };
+
+  const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${tokenResult.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      message: {
+        subject,
+        body: { contentType: "Text", content: text },
+        toRecipients: to.map((address) => ({ emailAddress: { address } })),
+      },
+      saveToSentItems: true,
+    }),
+  });
+
+  const result = response.status === 202 ? { id: `graph-${Date.now()}` } : await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, result };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -87,7 +158,6 @@ Deno.serve(async (req: Request) => {
     }
 
     const appUrl = Deno.env.get("APP_URL") ?? "https://paco4gn.github.io/Aplicacion_inventario/";
-    const resendApiKey = Deno.env.get("RESEND_API_KEY");
     const from = Deno.env.get("INCIDENT_EMAIL_FROM") ?? "IT Inventario <onboarding@resend.dev>";
     const asset = incident.asset;
     const eventLabel = event === "created" ? "Nueva incidencia" : event === "assigned" ? "Incidencia asignada" : "Incidencia actualizada";
@@ -104,43 +174,33 @@ Deno.serve(async (req: Request) => {
       `Abrir aplicacion: ${appUrl}`,
     ].filter(Boolean).join("\n");
 
-    if (!resendApiKey) {
+    const provider = (Deno.env.get("MAIL_PROVIDER") ?? (Deno.env.get("MS_TENANT_ID") ? "graph" : "resend")).toLowerCase();
+    const sendResult = provider === "graph"
+      ? await sendWithMicrosoftGraph(from, uniqueTo, subject, details)
+      : await sendWithResend(from, uniqueTo, subject, details);
+
+    if (sendResult.status === 400 && typeof sendResult.result === "object" && "message" in sendResult.result) {
       await supabase.from("audit_logs").insert([{
         action: "email_not_configured",
         entity_type: "incident",
         entity_id: incident.id,
         entity_name: incident.title,
-        details: { to: uniqueTo, event },
+        details: { to: uniqueTo, event, provider, error: sendResult.result },
         performed_by: "notify-incident",
       }]);
-      return json({ sent: false, reason: "missing_RESEND_API_KEY", to: uniqueTo });
+      return json({ sent: false, reason: sendResult.result.message, provider, to: uniqueTo });
     }
 
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: uniqueTo,
-        subject,
-        text: details,
-      }),
-    });
-
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
+    if (!sendResult.ok) {
       await supabase.from("audit_logs").insert([{
         action: "email_failed",
         entity_type: "incident",
         entity_id: incident.id,
         entity_name: incident.title,
-        details: { to: uniqueTo, event, status: response.status, provider_error: result },
+        details: { to: uniqueTo, event, provider, status: sendResult.status, provider_error: sendResult.result },
         performed_by: "notify-incident",
       }]);
-      return json({ sent: false, error: result }, 502);
+      return json({ sent: false, provider, error: sendResult.result }, 502);
     }
 
     await supabase.from("audit_logs").insert([{
@@ -148,11 +208,11 @@ Deno.serve(async (req: Request) => {
       entity_type: "incident",
       entity_id: incident.id,
       entity_name: incident.title,
-      details: { to: uniqueTo, event, provider_id: result.id },
+      details: { to: uniqueTo, event, provider, provider_id: sendResult.result.id },
       performed_by: "notify-incident",
     }]);
 
-    return json({ sent: true, to: uniqueTo, provider_id: result.id });
+    return json({ sent: true, provider, to: uniqueTo, provider_id: sendResult.result.id });
   } catch (err) {
     return json({ error: String(err) }, 500);
   }
