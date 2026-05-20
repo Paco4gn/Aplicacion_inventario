@@ -55,6 +55,7 @@ export function Incidents() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [assets, setAssets] = useState<AssetOption[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [employeeByAsset, setEmployeeByAsset] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -74,7 +75,7 @@ export function Incidents() {
   const [bulkStatus, setBulkStatus] = useState<Incident['status']>('closed');
 
   async function load() {
-    const [{ data: inc, error: incError }, { data: a }, { data: e }, { data: allEmployees }, { data: notificationRecipients }] = await Promise.all([
+    const [{ data: inc, error: incError }, { data: a }, { data: e }, { data: allEmployees }, { data: notificationRecipients }, { data: currentAssignments }] = await Promise.all([
       supabase.from('incidents')
         .select('*, asset:assets(serial_number,brand,model)')
         .order('opened_at', { ascending: false }),
@@ -82,6 +83,7 @@ export function Incidents() {
       supabase.from('employees').select('id,name,email').eq('active', true).order('name'),
       supabase.from('employees').select('id,name,email').order('name'),
       supabase.from('incident_notification_recipients').select('email,name,enabled').eq('enabled', true),
+      supabase.from('asset_assignments').select('asset_id,employee_id').is('returned_at', null),
     ]);
     if (incError) {
       showToast(`Error cargando incidencias: ${incError.message}`, 'error');
@@ -103,6 +105,9 @@ export function Incidents() {
     })) as Incident[]);
     setAssets(a ?? []);
     setEmployees(e ?? []);
+    setEmployeeByAsset(Object.fromEntries((currentAssignments ?? [])
+      .filter(assignment => assignment.asset_id && assignment.employee_id)
+      .map(assignment => [assignment.asset_id, assignment.employee_id])));
     setLoading(false);
   }
 
@@ -154,6 +159,14 @@ export function Incidents() {
   }
 
   function clearSelection() { setSelectedIds(new Set()); }
+
+  function handleAssetChange(assetId: string) {
+    setEditing(previous => ({
+      ...previous,
+      asset_id: assetId || null,
+      employee_id: assetId ? employeeByAsset[assetId] ?? null : null,
+    }));
+  }
 
   async function notifyIncident(incidentId: string, event: 'created' | 'updated' | 'assigned') {
     try {
@@ -428,7 +441,7 @@ export function Incidents() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Activo</label>
-              <select value={editing.asset_id ?? ''} onChange={e => setEditing(p => ({ ...p, asset_id: e.target.value || null }))} className="input">
+              <select value={editing.asset_id ?? ''} onChange={e => handleAssetChange(e.target.value)} className="input">
                 <option value="">Sin activo</option>
                 {assets.map(a => <option key={a.id} value={a.id}>{a.serial_number} — {a.brand} {a.model}</option>)}
               </select>

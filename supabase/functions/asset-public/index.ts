@@ -95,10 +95,18 @@ Deno.serve(async (req: Request) => {
 
       if (!asset) return json({ error: "not_found" }, 404);
 
+      const { data: assignment } = await supabase
+        .from("asset_assignments")
+        .select("employee_id")
+        .eq("asset_id", asset.id)
+        .is("returned_at", null)
+        .maybeSingle();
+
       const { data: incident, error: incErr } = await supabase
         .from("incidents")
         .insert([{
           asset_id: asset.id,
+          employee_id: assignment?.employee_id ?? null,
           title: title.trim(),
           description: description?.trim() ?? "",
           priority,
