@@ -104,6 +104,29 @@ async function sendWithBrevo(from: string, to: string[], subject: string, text: 
   return { ok: response.ok, status: response.status, result };
 }
 
+async function sendWithGoogleAppsScript(from: string, to: string[], subject: string, text: string) {
+  const scriptUrl = Deno.env.get("GOOGLE_SCRIPT_MAIL_URL");
+  const scriptSecret = Deno.env.get("GOOGLE_SCRIPT_MAIL_SECRET");
+  if (!scriptUrl || !scriptSecret) {
+    return { ok: false, status: 400, result: { message: "missing_GOOGLE_SCRIPT_MAIL_URL_or_SECRET" } };
+  }
+
+  const response = await fetch(scriptUrl, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({
+      secret: scriptSecret,
+      fromName: from.includes("<") ? from.replace(/<[^>]+>/, "").trim() : "IT Inventario",
+      to,
+      subject,
+      text,
+    }),
+  });
+
+  const result = await response.json().catch(() => ({}));
+  return { ok: response.ok && result?.ok !== false, status: response.status, result };
+}
+
 async function sendWithMicrosoftGraph(from: string, to: string[], subject: string, text: string) {
   const tenantId = Deno.env.get("MS_TENANT_ID");
   const clientId = Deno.env.get("MS_CLIENT_ID");
@@ -234,7 +257,9 @@ Deno.serve(async (req: Request) => {
         ? await sendWithSendGrid(from, uniqueTo, subject, details)
         : provider === "brevo"
           ? await sendWithBrevo(from, uniqueTo, subject, details)
-        : await sendWithResend(from, uniqueTo, subject, details);
+          : provider === "google_script"
+            ? await sendWithGoogleAppsScript(from, uniqueTo, subject, details)
+            : await sendWithResend(from, uniqueTo, subject, details);
 
     if (sendResult.status === 400 && typeof sendResult.result === "object" && "message" in sendResult.result) {
       await supabase.from("audit_logs").insert([{
