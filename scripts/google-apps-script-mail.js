@@ -15,6 +15,7 @@ function doPost(e) {
 
     GmailApp.sendEmail(recipients, data.subject || 'Aviso IT Inventario', data.text || '', {
       name: data.fromName || 'IT Inventario',
+      htmlBody: data.html || undefined,
     });
 
     return json({ ok: true });

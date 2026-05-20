@@ -34,7 +34,73 @@ function extractEmail(from: string) {
   return (match?.[1] ?? from).trim();
 }
 
-async function sendWithResend(from: string, to: string[], subject: string, text: string) {
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function fieldRow(label: string, value?: string | null) {
+  if (!value) return "";
+  return `
+    <tr>
+      <td style="padding:8px 12px;color:#64748b;font-size:13px;width:150px;">${escapeHtml(label)}</td>
+      <td style="padding:8px 12px;color:#0f172a;font-size:14px;font-weight:600;">${escapeHtml(value)}</td>
+    </tr>`;
+}
+
+function buildEmailHtml(params: {
+  eventLabel: string;
+  title: string;
+  priority: string;
+  status: string;
+  asset?: string | null;
+  location?: string | null;
+  employee?: string | null;
+  assignedTo?: string | null;
+  description?: string | null;
+  appUrl: string;
+}) {
+  const description = params.description?.trim();
+  return `<!doctype html>
+<html>
+  <body style="margin:0;background:#f6f8fb;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <div style="max-width:680px;margin:0 auto;padding:28px 16px;">
+      <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;box-shadow:0 8px 24px rgba(15,23,42,.08);">
+        <div style="background:#2563eb;padding:18px 22px;color:#ffffff;">
+          <div style="font-size:13px;font-weight:700;opacity:.9;">IT Inventario</div>
+          <h1 style="margin:6px 0 0;font-size:22px;line-height:1.25;">${escapeHtml(params.eventLabel)}</h1>
+        </div>
+        <div style="padding:22px;">
+          <h2 style="margin:0 0 14px;font-size:20px;line-height:1.3;color:#111827;">${escapeHtml(params.title)}</h2>
+          <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
+            ${fieldRow("Prioridad", params.priority)}
+            ${fieldRow("Estado", params.status)}
+            ${fieldRow("Activo", params.asset)}
+            ${fieldRow("Ubicacion", params.location)}
+            ${fieldRow("Empleado afectado", params.employee)}
+            ${fieldRow("Asignado a", params.assignedTo)}
+          </table>
+          ${description ? `
+          <div style="margin-top:18px;">
+            <div style="font-size:13px;color:#64748b;font-weight:700;margin-bottom:8px;">Descripcion</div>
+            <div style="white-space:pre-wrap;background:#ffffff;border:1px solid #e5e7eb;border-radius:10px;padding:14px;color:#111827;font-size:14px;line-height:1.5;">${escapeHtml(description)}</div>
+          </div>` : ""}
+          <div style="margin-top:22px;">
+            <a href="${escapeHtml(params.appUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:11px 16px;border-radius:9px;">Abrir aplicacion</a>
+          </div>
+          <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;">${escapeHtml(params.appUrl)}</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
+}
+
+async function sendWithResend(from: string, to: string[], subject: string, text: string, html: string) {
   const resendApiKey = Deno.env.get("RESEND_API_KEY");
   if (!resendApiKey) return { ok: false, status: 400, result: { message: "missing_RESEND_API_KEY" } };
 
@@ -44,14 +110,14 @@ async function sendWithResend(from: string, to: string[], subject: string, text:
       Authorization: `Bearer ${resendApiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from, to, subject, text }),
+    body: JSON.stringify({ from, to, subject, text, html }),
   });
 
   const result = await response.json().catch(() => ({}));
   return { ok: response.ok, status: response.status, result };
 }
 
-async function sendWithSendGrid(from: string, to: string[], subject: string, text: string) {
+async function sendWithSendGrid(from: string, to: string[], subject: string, text: string, html: string) {
   const sendGridApiKey = Deno.env.get("SENDGRID_API_KEY");
   if (!sendGridApiKey) return { ok: false, status: 400, result: { message: "missing_SENDGRID_API_KEY" } };
 
@@ -68,7 +134,10 @@ async function sendWithSendGrid(from: string, to: string[], subject: string, tex
       personalizations: [{ to: to.map((email) => ({ email })) }],
       from: { email: senderEmail, name: senderName || "IT Inventario" },
       subject,
-      content: [{ type: "text/plain", value: text }],
+      content: [
+        { type: "text/plain", value: text },
+        { type: "text/html", value: html },
+      ],
     }),
   });
 
@@ -78,7 +147,7 @@ async function sendWithSendGrid(from: string, to: string[], subject: string, tex
   return { ok: response.ok, status: response.status, result };
 }
 
-async function sendWithBrevo(from: string, to: string[], subject: string, text: string) {
+async function sendWithBrevo(from: string, to: string[], subject: string, text: string, html: string) {
   const brevoApiKey = Deno.env.get("BREVO_API_KEY");
   if (!brevoApiKey) return { ok: false, status: 400, result: { message: "missing_BREVO_API_KEY" } };
 
@@ -97,6 +166,7 @@ async function sendWithBrevo(from: string, to: string[], subject: string, text: 
       to: to.map((email) => ({ email })),
       subject,
       textContent: text,
+      htmlContent: html,
     }),
   });
 
@@ -104,7 +174,7 @@ async function sendWithBrevo(from: string, to: string[], subject: string, text: 
   return { ok: response.ok, status: response.status, result };
 }
 
-async function sendWithGoogleAppsScript(from: string, to: string[], subject: string, text: string) {
+async function sendWithGoogleAppsScript(from: string, to: string[], subject: string, text: string, html: string) {
   const scriptUrl = Deno.env.get("GOOGLE_SCRIPT_MAIL_URL");
   const scriptSecret = Deno.env.get("GOOGLE_SCRIPT_MAIL_SECRET");
   if (!scriptUrl || !scriptSecret) {
@@ -120,6 +190,7 @@ async function sendWithGoogleAppsScript(from: string, to: string[], subject: str
       to,
       subject,
       text,
+      html,
     }),
   });
 
@@ -127,7 +198,7 @@ async function sendWithGoogleAppsScript(from: string, to: string[], subject: str
   return { ok: response.ok && result?.ok !== false, status: response.status, result };
 }
 
-async function sendWithMicrosoftGraph(from: string, to: string[], subject: string, text: string) {
+async function sendWithMicrosoftGraph(from: string, to: string[], subject: string, text: string, html: string) {
   const tenantId = Deno.env.get("MS_TENANT_ID");
   const clientId = Deno.env.get("MS_CLIENT_ID");
   const clientSecret = Deno.env.get("MS_CLIENT_SECRET");
@@ -165,7 +236,7 @@ async function sendWithMicrosoftGraph(from: string, to: string[], subject: strin
     body: JSON.stringify({
       message: {
         subject,
-        body: { contentType: "Text", content: text },
+        body: { contentType: "HTML", content: html },
         toRecipients: to.map((address) => ({ emailAddress: { address } })),
       },
       saveToSentItems: true,
@@ -237,29 +308,46 @@ Deno.serve(async (req: Request) => {
     const from = Deno.env.get("INCIDENT_EMAIL_FROM") ?? "IT Inventario <onboarding@resend.dev>";
     const asset = incident.asset;
     const eventLabel = event === "created" ? "Nueva incidencia" : event === "assigned" ? "Incidencia asignada" : "Incidencia actualizada";
+    const priority = priorityLabel(incident.priority);
+    const status = statusLabel(incident.status);
+    const assetLabel = asset?.serial_number
+      ? `${asset.serial_number}${[asset.brand, asset.model].filter(Boolean).length ? ` - ${[asset.brand, asset.model].filter(Boolean).join(" ")}` : ""}`
+      : null;
     const subject = `[IT Inventario] ${eventLabel}: ${incident.title}`;
     const details = [
       `Titulo: ${incident.title}`,
-      `Prioridad: ${priorityLabel(incident.priority)}`,
-      `Estado: ${statusLabel(incident.status)}`,
-      asset?.serial_number ? `Activo: ${asset.serial_number} - ${[asset.brand, asset.model].filter(Boolean).join(" ")}` : null,
+      `Prioridad: ${priority}`,
+      `Estado: ${status}`,
+      assetLabel ? `Activo: ${assetLabel}` : null,
       asset?.location ? `Ubicacion: ${asset.location}` : null,
       employee?.name ? `Empleado afectado: ${employee.name}` : null,
-      assignedTo?.name ? `Responsable: ${assignedTo.name}` : null,
+      assignedTo?.name ? `Asignado a: ${assignedTo.name}` : null,
       incident.description ? `Descripcion: ${incident.description}` : null,
       `Abrir aplicacion: ${appUrl}`,
     ].filter(Boolean).join("\n");
+    const html = buildEmailHtml({
+      eventLabel,
+      title: incident.title,
+      priority,
+      status,
+      asset: assetLabel,
+      location: asset?.location,
+      employee: employee?.name,
+      assignedTo: assignedTo?.name,
+      description: incident.description,
+      appUrl,
+    });
 
     const provider = (Deno.env.get("MAIL_PROVIDER") ?? (Deno.env.get("MS_TENANT_ID") ? "graph" : "resend")).toLowerCase();
     const sendResult = provider === "graph"
-      ? await sendWithMicrosoftGraph(from, uniqueTo, subject, details)
+      ? await sendWithMicrosoftGraph(from, uniqueTo, subject, details, html)
       : provider === "sendgrid"
-        ? await sendWithSendGrid(from, uniqueTo, subject, details)
+        ? await sendWithSendGrid(from, uniqueTo, subject, details, html)
         : provider === "brevo"
-          ? await sendWithBrevo(from, uniqueTo, subject, details)
+          ? await sendWithBrevo(from, uniqueTo, subject, details, html)
           : provider === "google_script"
-            ? await sendWithGoogleAppsScript(from, uniqueTo, subject, details)
-            : await sendWithResend(from, uniqueTo, subject, details);
+            ? await sendWithGoogleAppsScript(from, uniqueTo, subject, details, html)
+            : await sendWithResend(from, uniqueTo, subject, details, html);
 
     if (sendResult.status === 400 && typeof sendResult.result === "object" && "message" in sendResult.result) {
       await supabase.from("audit_logs").insert([{
