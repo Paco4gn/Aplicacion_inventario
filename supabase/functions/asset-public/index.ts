@@ -120,12 +120,14 @@ Deno.serve(async (req: Request) => {
       }]);
 
       try {
-        const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const functionKey = Deno.env.get("FUNCTION_INVOKE_KEY")
+          ?? Deno.env.get("SUPABASE_ANON_KEY")
+          ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
         const notifyResponse = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/notify-incident`, {
           method: "POST",
           headers: {
-            apikey: serviceRoleKey,
-            Authorization: `Bearer ${serviceRoleKey}`,
+            apikey: functionKey,
+            Authorization: `Bearer ${functionKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ incident_id: incident?.id, event: "created" }),
