@@ -120,14 +120,27 @@ Deno.serve(async (req: Request) => {
       }]);
 
       try {
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/notify-incident`, {
+        const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const notifyResponse = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/notify-incident`, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ incident_id: incident?.id, event: "created" }),
         });
+        if (!notifyResponse.ok) {
+          const providerError = await notifyResponse.json().catch(() => ({ status: notifyResponse.status }));
+          await supabase.from("audit_logs").insert([{
+            action: "public_incident_notification_failed",
+            entity_type: "incident",
+            entity_id: incident?.id,
+            entity_name: title.trim(),
+            details: { source: "public_qr", provider_error: providerError },
+            performed_by: "public",
+          }]);
+        }
       } catch (_) {
         // Best-effort notification. Public reporting should still succeed.
       }

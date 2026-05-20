@@ -280,7 +280,7 @@ export function Incidents() {
       { key: 'title', label: 'Título' },
       { key: 'priority', label: 'Prioridad' },
       { key: 'status', label: 'Estado' },
-      { key: 'assigned_to_email', label: 'Responsable' },
+      { key: 'assigned_to_email', label: 'Asignado a' },
       { key: 'description', label: 'Descripción' },
       { key: 'resolution', label: 'Resolución' },
       { key: 'opened_at', label: 'Apertura' },
@@ -355,7 +355,7 @@ export function Incidents() {
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Título</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Activo</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Empleado</th>
-                <th className="text-left px-4 py-3 text-gray-500 font-medium">Responsable</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">Asignado a</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Prioridad</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Estado</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Apertura</th>
@@ -441,7 +441,7 @@ export function Incidents() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Responsable</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Asignado a</label>
               <select
                 value={editing.assigned_to_email ?? ''}
                 onChange={e => {
@@ -455,7 +455,7 @@ export function Incidents() {
                 }}
                 className="input"
               >
-                <option value="">Sin responsable</option>
+                <option value="">Sin asignar</option>
                 {recipients
                   .filter(r => r.enabled)
                   .map(r => <option key={r.id} value={r.email}>{r.name || r.email}</option>)}
@@ -485,7 +485,7 @@ export function Incidents() {
         </div>
       </Modal>
 
-      <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Avisos de Incidencias" size="lg">
+      <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Responsables y Avisos" size="lg">
         <div className="space-y-5">
           {!notificationReady && (
             <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -558,7 +558,7 @@ export function Incidents() {
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-gray-400">Se avisara al crear una incidencia, cambiar prioridad/estado o asignar un responsable.</p>
+          <p className="text-xs text-gray-400">Todos los activos reciben aviso al crear una incidencia. Despues puedes asignar aqui quien la esta trabajando.</p>
         </div>
       </Modal>
 
