@@ -54,6 +54,8 @@ interface DashboardData {
   totalAssets: number;
   computerAssets: AssetWithEmployee[];
   peripheralAssets: AssetWithEmployee[];
+  linkedPeripheralAssets: AssetWithEmployee[];
+  unlinkedPeripheralAssets: AssetWithEmployee[];
   availableAssets: AssetWithEmployee[];
   availableComputers: AssetWithEmployee[];
   availablePeripherals: AssetWithEmployee[];
@@ -88,6 +90,8 @@ const emptyData: DashboardData = {
   totalAssets: 0,
   computerAssets: [],
   peripheralAssets: [],
+  linkedPeripheralAssets: [],
+  unlinkedPeripheralAssets: [],
   availableAssets: [],
   availableComputers: [],
   availablePeripherals: [],
@@ -285,6 +289,8 @@ export function Dashboard() {
 
       const computerAssets = enrichedAssets.filter(asset => isComputerAsset(asset.asset_type));
       const peripheralAssets = enrichedAssets.filter(asset => isPeripheralAsset(asset.asset_type));
+      const linkedPeripheralAssets = peripheralAssets.filter(asset => asset.parent_asset_id);
+      const unlinkedPeripheralAssets = peripheralAssets.filter(asset => !asset.parent_asset_id);
       const availableAssets = enrichedAssets.filter(asset => (asset.status === 'active' || asset.status === 'storage') && !asset.employee_name);
       const availableComputers = availableAssets.filter(asset => isComputerAsset(asset.asset_type));
       const availablePeripherals = availableAssets.filter(asset => isPeripheralAsset(asset.asset_type));
@@ -369,6 +375,8 @@ export function Dashboard() {
         totalAssets: enrichedAssets.length,
         computerAssets,
         peripheralAssets,
+        linkedPeripheralAssets,
+        unlinkedPeripheralAssets,
         availableAssets,
         availableComputers,
         availablePeripherals,
@@ -423,7 +431,7 @@ export function Dashboard() {
       <div className="grid grid-cols-2 xl:grid-cols-6 gap-4">
         <StatCard label="Total activos" value={data.totalAssets} icon={Package} tone="slate" subtitle={`${activeAssets} en parque activo`} />
         <StatCard label="Equipos IT" value={data.computerAssets.length} icon={Monitor} tone="blue" subtitle="portatiles, torres y servidores" />
-        <StatCard label="Perifericos" value={data.peripheralAssets.length} icon={Keyboard} tone="slate" subtitle="monitores, teclados, ratones..." />
+        <StatCard label="Perifericos" value={data.peripheralAssets.length} icon={Keyboard} tone="slate" subtitle={`${data.linkedPeripheralAssets.length} vinculados / ${data.unlinkedPeripheralAssets.length} sin equipo`} />
         <StatCard label="Disponibles" value={data.availableAssets.length} icon={CheckCircle} tone="emerald" subtitle={`${data.availableComputers.length} equipos / ${data.availablePeripherals.length} perifericos`} />
         <StatCard label="Ocupados" value={data.occupiedAssets.length} icon={User} tone="blue" subtitle={`${occupiedPercent}% del inventario`} />
         <StatCard label="En reparacion" value={data.repairAssets.length} icon={Wrench} tone="amber" subtitle="requieren seguimiento" alert={data.repairAssets.length > 0} />

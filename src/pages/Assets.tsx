@@ -42,7 +42,7 @@ const emptyAsset: Partial<Asset> = {
   status: 'active', location: '', purchase_date: null, purchase_value: null,
   operating_system: '', ip_address: '', mac_address: '', processor: '',
   ram_gb: null, storage_gb: null, last_inventory_at: null,
-  warranty_expiry: null, end_of_life: null, notes: '', image_url: '',
+  warranty_expiry: null, end_of_life: null, parent_asset_id: null, notes: '', image_url: '',
 };
 
 function statusBadge(s: string) {
@@ -54,6 +54,10 @@ function statusBadge(s: string) {
 
 function isComputerAsset(type?: string | null) {
   return ['Laptop', 'Torre', 'Server'].includes(type ?? '');
+}
+
+function isPeripheralAsset(type?: string | null) {
+  return ['Printer', 'Monitor', 'Keyboard', 'Mouse', 'Dock', 'Webcam', 'Headset', 'Projector', 'Scanner', 'UPS', 'Peripheral'].includes(type ?? '');
 }
 
 function assetTypeLabel(type?: string | null) {
@@ -205,6 +209,16 @@ export function Assets() {
     return asgn ? (asgn.employee as unknown as Employee) : null;
   }
 
+  const computerAssets = assets.filter(a => isComputerAsset(a.asset_type));
+
+  function linkedPeripherals(assetId: string) {
+    return assets.filter(a => a.parent_asset_id === assetId);
+  }
+
+  function parentAsset(asset: Partial<Asset> | null) {
+    return asset?.parent_asset_id ? assets.find(a => a.id === asset.parent_asset_id) ?? null : null;
+  }
+
   const filtered = assets.filter(a => {
     const q = search.toLowerCase();
     const emp = currentEmployee(a.id);
@@ -258,6 +272,7 @@ export function Assets() {
         storage_gb: null,
         last_inventory_at: null,
       }),
+      parent_asset_id: isPeripheralAsset(editing.asset_type) ? (editing.parent_asset_id || null) : null,
     };
 
     if (editing.id) {
@@ -577,6 +592,7 @@ ${warrantyWarning}${eolWarning}
                   <th className="text-left px-4 py-3 text-gray-500 font-medium">Marca / Modelo</th>
                   <th className="text-left px-4 py-3 text-gray-500 font-medium">Ubicación</th>
                   <th className="text-left px-4 py-3 text-gray-500 font-medium">Asignado a</th>
+                  <th className="text-left px-4 py-3 text-gray-500 font-medium">Equipo vinculado</th>
                   <th className="text-left px-4 py-3 text-gray-500 font-medium">Garantía</th>
                   <th className="text-left px-4 py-3 text-gray-500 font-medium">Estado</th>
                   <th className="px-4 py-3" />
@@ -584,11 +600,13 @@ ${warrantyWarning}${eolWarning}
               </thead>
               <tbody>
                 {loading
-                  ? Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} cols={9} />)
+                  ? Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} cols={10} />)
                   : paginated.map(a => {
                       const emp = currentEmployee(a.id);
                       const isChecked = selectedIds.has(a.id);
                       const wDays = daysUntil(a.warranty_expiry);
+                      const parent = parentAsset(a);
+                      const children = linkedPeripherals(a.id);
                       return (
                         <tr key={a.id} className={`border-b border-gray-50 transition-colors ${isChecked ? 'bg-blue-50/50' : 'hover:bg-gray-50'}`}>
                           <td className="px-4 py-3 w-8">
@@ -601,6 +619,15 @@ ${warrantyWarning}${eolWarning}
                           <td className="px-4 py-3 text-gray-700">{a.brand} {a.model}</td>
                           <td className="px-4 py-3 text-gray-500">{a.location || '—'}</td>
                           <td className="px-4 py-3">{emp ? <span className="text-gray-800 font-medium">{emp.name}</span> : <span className="text-gray-400 italic">Sin asignar</span>}</td>
+                          <td className="px-4 py-3">
+                            {parent ? (
+                              <span className="font-mono text-xs font-semibold text-blue-700">{parent.serial_number}</span>
+                            ) : isComputerAsset(a.asset_type) && children.length > 0 ? (
+                              <span className="text-xs font-medium text-gray-600">{children.length} perifericos</span>
+                            ) : (
+                              <span className="text-gray-300 text-xs">—</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             {!a.warranty_expiry ? (
                               <span className="text-gray-300 text-xs">—</span>
@@ -627,7 +654,7 @@ ${warrantyWarning}${eolWarning}
                     })
                 }
                 {!loading && paginated.length === 0 && (
-                  <tr><td colSpan={9} className="px-4 py-10 text-center text-gray-400">No se encontraron activos</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-10 text-center text-gray-400">No se encontraron activos</td></tr>
                 )}
               </tbody>
             </table>
@@ -646,6 +673,7 @@ ${warrantyWarning}${eolWarning}
                 onChange={e => setEditing(p => ({
                   ...p,
                   asset_type: e.target.value,
+                  parent_asset_id: isPeripheralAsset(e.target.value) ? p.parent_asset_id ?? null : null,
                   ...(!isComputerAsset(e.target.value) ? {
                     operating_system: '',
                     ip_address: '',
@@ -694,10 +722,34 @@ ${warrantyWarning}${eolWarning}
                 <FormField label="Disco (GB)"><input type="number" min="0" step="0.01" value={editing.storage_gb ?? ''} onChange={e => setEditing(p => ({ ...p, storage_gb: e.target.value ? parseFloat(e.target.value) : null }))} className="input" /></FormField>
                 <FormField label="Ultimo inventario"><input type="datetime-local" value={editing.last_inventory_at ? editing.last_inventory_at.slice(0, 16) : ''} onChange={e => setEditing(p => ({ ...p, last_inventory_at: e.target.value ? new Date(e.target.value).toISOString() : null }))} className="input" /></FormField>
               </div>
+              {editing.id && linkedPeripherals(editing.id).length > 0 && (
+                <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                  <p className="text-xs font-semibold text-gray-500 mb-2">Perifericos vinculados</p>
+                  <div className="flex flex-wrap gap-2">
+                    {linkedPeripherals(editing.id).map(item => (
+                      <span key={item.id} className="inline-flex items-center gap-1 rounded-lg bg-white border border-gray-200 px-2 py-1 text-xs text-gray-700">
+                        <AssetTypeIcon type={item.asset_type} /> {item.serial_number} · {assetTypeLabel(item.asset_type)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             ) : (
-              <div className="col-span-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                Este tipo se tratara como periferico. Solo se guardan datos utiles: serie, marca, modelo, ubicacion, estado, garantia, valor, imagen y notas.
+              <div className="col-span-2 space-y-3">
+                {isPeripheralAsset(editing.asset_type) && (
+                  <FormField label="Vincular a equipo">
+                    <select value={editing.parent_asset_id ?? ''} onChange={e => setEditing(p => ({ ...p, parent_asset_id: e.target.value || null }))} className="input">
+                      <option value="">Sin equipo vinculado</option>
+                      {computerAssets
+                        .filter(a => a.id !== editing.id)
+                        .map(a => <option key={a.id} value={a.id}>{a.serial_number} · {assetTypeLabel(a.asset_type)} · {a.brand} {a.model}</option>)}
+                    </select>
+                  </FormField>
+                )}
+                <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                  Este tipo se tratara como periferico. Solo se guardan datos utiles: serie, marca, modelo, ubicacion, estado, garantia, valor, imagen y notas.
+                </div>
               </div>
             )}
             <div className="col-span-2">
@@ -711,13 +763,15 @@ ${warrantyWarning}${eolWarning}
         </Modal>
 
         {/* Assign modal */}
-        <Modal open={detailOpen} onClose={() => setDetailOpen(false)} title={`Asignar: ${selected?.serial_number}`} size="sm">
+        <Modal open={detailOpen} onClose={() => setDetailOpen(false)} title={`Ficha: ${selected?.serial_number}`} size="lg">
           {selected && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <DetailItem label="Tipo" value={assetTypeLabel(selected.asset_type)} />
                 <DetailItem label="Marca/Modelo" value={`${selected.brand} ${selected.model}`} />
                 <DetailItem label="Estado" value={statusBadge(selected.status)} />
+                <DetailItem label="Empleado actual" value={currentEmployee(selected.id)?.name ?? 'Sin asignar'} />
+                <DetailItem label="Equipo vinculado" value={parentAsset(selected)?.serial_number ?? 'â€”'} />
                 <DetailItem label="Ubicación" value={selected.location || '—'} />
                 {(selected.operating_system || selected.ip_address || selected.mac_address || selected.processor) && (
                   <>
@@ -734,6 +788,30 @@ ${warrantyWarning}${eolWarning}
                   <DetailItem label="Fin de Vida" value={new Date(selected.end_of_life).toLocaleDateString('es-ES')} />
                 )}
               </div>
+              {isComputerAsset(selected.asset_type) && (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                  <p className="text-xs font-semibold text-gray-500 mb-2">Perifericos vinculados</p>
+                  {linkedPeripherals(selected.id).length === 0 ? (
+                    <p className="text-sm text-gray-400">No hay perifericos vinculados a este equipo.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {linkedPeripherals(selected.id).map(item => (
+                        <div key={item.id} className="flex items-center gap-2 rounded-lg bg-white border border-gray-100 px-3 py-2">
+                          <AssetTypeIcon type={item.asset_type} />
+                          <span className="font-mono text-xs font-semibold text-gray-800">{item.serial_number}</span>
+                          <span className="text-xs text-gray-500 truncate">{assetTypeLabel(item.asset_type)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {selected.notes && (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                  <p className="text-xs font-semibold text-gray-500 mb-1">Notas</p>
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{selected.notes}</p>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Asignar a empleado</label>
                 <select value={assignEmployeeId} onChange={e => setAssignEmployeeId(e.target.value)} className="input mb-3">

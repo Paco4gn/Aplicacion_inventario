@@ -36,12 +36,14 @@ export interface Asset {
   ram_gb: number | null;
   storage_gb: number | null;
   last_inventory_at: string | null;
+  parent_asset_id: string | null;
   notes: string;
   image_url: string;
   created_at: string;
   updated_at: string;
   // joined
   current_employee?: Employee | null;
+  parent_asset?: Asset | null;
 }
 
 export interface AssetAssignment {
