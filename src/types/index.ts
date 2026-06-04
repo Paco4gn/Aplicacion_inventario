@@ -87,6 +87,15 @@ export interface IncidentNotificationRecipient {
   updated_at: string;
 }
 
+export interface IncidentComment {
+  id: string;
+  incident_id: string;
+  author_name: string;
+  body: string;
+  internal: boolean;
+  created_at: string;
+}
+
 export interface Software {
   id: string;
   name: string;

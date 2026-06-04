@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, CheckCircle, Download, CheckSquare, Square, X, Settings, Mail, Bell } from 'lucide-react';
+import { Plus, Pencil, Trash2, CheckCircle, Download, CheckSquare, Square, X, Settings, Mail, Bell, Eye, MessageSquare, Send } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAction } from '../lib/audit';
 import { exportCSV } from '../lib/csv';
@@ -10,7 +10,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { SearchInput } from '../components/ui/SearchInput';
 import { Pagination } from '../components/ui/Pagination';
 import { SkeletonRow } from '../components/ui/SkeletonRow';
-import type { Incident, Asset, Employee, IncidentNotificationRecipient } from '../types';
+import type { Incident, Asset, Employee, IncidentNotificationRecipient, IncidentComment } from '../types';
 
 const PAGE_SIZE = 15;
 type AssetOption = Pick<Asset, 'id' | 'serial_number' | 'brand' | 'model'>;
@@ -64,6 +64,7 @@ export function Incidents() {
   const [filterPriority, setFilterPriority] = useState('');
   const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -71,6 +72,8 @@ export function Incidents() {
   const [editingRecipient, setEditingRecipient] = useState<Partial<IncidentNotificationRecipient>>(emptyRecipient);
   const [selected, setSelected] = useState<Incident | null>(null);
   const [recipients, setRecipients] = useState<IncidentNotificationRecipient[]>([]);
+  const [comments, setComments] = useState<IncidentComment[]>([]);
+  const [newComment, setNewComment] = useState('');
   const [notificationReady, setNotificationReady] = useState(true);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -168,6 +171,45 @@ export function Incidents() {
       asset_id: assetId || null,
       employee_id: assetId ? employeeByAsset[assetId] ?? null : null,
     }));
+  }
+
+  async function openDetail(incident: Incident) {
+    setSelected(incident);
+    setDetailOpen(true);
+    setNewComment('');
+    const { data, error } = await supabase
+      .from('incident_comments')
+      .select('*')
+      .eq('incident_id', incident.id)
+      .order('created_at', { ascending: true });
+    if (error) {
+      setComments([]);
+      showToast('No se pudieron cargar los comentarios', 'error');
+      return;
+    }
+    setComments(data ?? []);
+  }
+
+  async function addComment() {
+    if (!selected || !newComment.trim()) return;
+    const { data, error } = await supabase
+      .from('incident_comments')
+      .insert([{
+        incident_id: selected.id,
+        author_name: 'informatica',
+        body: newComment.trim(),
+        internal: true,
+      }])
+      .select()
+      .maybeSingle();
+    if (error) {
+      showToast('No se pudo guardar el comentario', 'error');
+      return;
+    }
+    if (data) setComments(previous => [...previous, data]);
+    setNewComment('');
+    await logAction('commented', 'incident', selected.id, selected.title);
+    showToast('Comentario añadido');
   }
 
   async function notifyIncident(incidentId: string, event: 'created' | 'updated' | 'assigned') {
@@ -404,6 +446,9 @@ export function Incidents() {
                         <td className="px-4 py-3 text-gray-500">{new Date(inc.opened_at).toLocaleDateString('es-ES')}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1 justify-end">
+                            <button onClick={() => openDetail(inc)} className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors" title="Ver seguimiento">
+                              <Eye size={15} />
+                            </button>
                             {inc.status !== 'closed' && (
                               <button onClick={() => closeIncident(inc)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition-colors" title="Cerrar">
                                 <CheckCircle size={15} />
@@ -498,6 +543,89 @@ export function Incidents() {
           <button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button>
           <button onClick={save} className="btn-primary">Guardar</button>
         </div>
+      </Modal>
+
+      <Modal open={detailOpen} onClose={() => setDetailOpen(false)} title={`Seguimiento: ${selected?.title ?? ''}`} size="lg">
+        {selected && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2">
+                <p className="text-xs text-gray-400 mb-1">Estado</p>
+                {statusBadge(selected.status)}
+              </div>
+              <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2">
+                <p className="text-xs text-gray-400 mb-1">Prioridad</p>
+                {priorityBadge(selected.priority)}
+              </div>
+              <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2">
+                <p className="text-xs text-gray-400 mb-1">Activo</p>
+                <p className="font-mono text-xs font-semibold text-gray-800">{(selected.asset as { serial_number?: string } | null)?.serial_number ?? 'Sin activo'}</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2">
+                <p className="text-xs text-gray-400 mb-1">Responsable</p>
+                <p className="text-sm font-semibold text-gray-800 truncate">{(selected.assigned_to as { name?: string } | null)?.name ?? 'Avisos generales'}</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-100 bg-white p-4">
+              <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Descripcion</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{selected.description || 'Sin descripcion'}</p>
+            </div>
+
+            {selected.resolution && (
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+                <p className="text-xs font-semibold text-emerald-600 uppercase mb-2">Resolucion</p>
+                <p className="text-sm text-emerald-900 whitespace-pre-wrap">{selected.resolution}</p>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-gray-100 overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 border-b border-gray-100">
+                <MessageSquare size={15} className="text-blue-500" />
+                <p className="text-sm font-semibold text-gray-800">Comentarios internos</p>
+                <span className="ml-auto text-xs text-gray-400">{comments.length}</span>
+              </div>
+              <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
+                {comments.map(comment => (
+                  <div key={comment.id} className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="text-xs font-semibold text-gray-700">{comment.author_name || 'informatica'}</p>
+                      <p className="text-xs text-gray-400">{new Date(comment.created_at).toLocaleString('es-ES')}</p>
+                    </div>
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{comment.body}</p>
+                  </div>
+                ))}
+                {comments.length === 0 && (
+                  <p className="px-4 py-8 text-center text-sm text-gray-400">Todavia no hay comentarios</p>
+                )}
+              </div>
+              <div className="p-3 bg-gray-50 border-t border-gray-100 flex gap-2">
+                <input
+                  value={newComment}
+                  onChange={e => setNewComment(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addComment(); }}
+                  className="input"
+                  placeholder="Añadir comentario de seguimiento..."
+                  maxLength={1000}
+                />
+                <button onClick={addComment} disabled={!newComment.trim()} className="btn-primary flex items-center gap-2 disabled:opacity-40">
+                  <Send size={14} /> Añadir
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setEditing({ ...selected }); setDetailOpen(false); setModalOpen(true); }} className="btn-secondary flex items-center gap-2">
+                <Pencil size={14} /> Editar incidencia
+              </button>
+              {selected.status !== 'closed' && (
+                <button onClick={() => { closeIncident(selected); setDetailOpen(false); }} className="btn-primary flex items-center gap-2">
+                  <CheckCircle size={14} /> Cerrar incidencia
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Responsables y Avisos" size="lg">

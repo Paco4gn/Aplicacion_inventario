@@ -184,6 +184,7 @@ export function Assets() {
   const [editing, setEditing] = useState<Partial<Asset>>(emptyAsset);
   const [selected, setSelected] = useState<Asset | null>(null);
   const [assignEmployeeId, setAssignEmployeeId] = useState('');
+  const [assignWithPeripherals, setAssignWithPeripherals] = useState(true);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -223,6 +224,13 @@ export function Assets() {
     const q = search.toLowerCase();
     const emp = currentEmployee(a.id);
     const isAvailable = (a.status === 'active' || a.status === 'storage') && !emp;
+    const missingTechnical = isComputerAsset(a.asset_type)
+      && !a.operating_system?.trim()
+      && !a.ip_address?.trim()
+      && !a.mac_address?.trim()
+      && !a.processor?.trim()
+      && !a.ram_gb
+      && !a.storage_gb;
     return (
       (!q || a.serial_number.toLowerCase().includes(q) || a.brand.toLowerCase().includes(q)
         || a.model.toLowerCase().includes(q) || a.location.toLowerCase().includes(q)
@@ -235,7 +243,9 @@ export function Assets() {
       && (!filterAvailability
         || (filterAvailability === 'available' && isAvailable)
         || (filterAvailability === 'assigned' && Boolean(emp))
-        || (filterAvailability === 'unlocated' && !a.location?.trim()))
+        || (filterAvailability === 'unlocated' && !a.location?.trim())
+        || (filterAvailability === 'unlinked_peripheral' && isPeripheralAsset(a.asset_type) && !a.parent_asset_id)
+        || (filterAvailability === 'missing_technical' && missingTechnical))
     );
   });
 
@@ -321,17 +331,21 @@ export function Assets() {
 
   async function assign() {
     if (!selected) return;
+    const assetIds = assignWithPeripherals && isComputerAsset(selected.asset_type)
+      ? [selected.id, ...linkedPeripherals(selected.id).map(asset => asset.id)]
+      : [selected.id];
+
     await supabase.from('asset_assignments')
       .update({ returned_at: new Date().toISOString() })
-      .eq('asset_id', selected.id)
+      .in('asset_id', assetIds)
       .is('returned_at', null);
     if (assignEmployeeId && assignEmployeeId !== 'none') {
-      await supabase.from('asset_assignments').insert([{
-        asset_id: selected.id, employee_id: assignEmployeeId, notes: 'Asignado manualmente',
-      }]);
+      await supabase.from('asset_assignments').insert(assetIds.map(assetId => ({
+        asset_id: assetId, employee_id: assignEmployeeId, notes: assetId === selected.id ? 'Asignado manualmente' : `Asignado con equipo ${selected.serial_number}`,
+      })));
       const emp = employees.find(e => e.id === assignEmployeeId);
-      await logAction('assigned', 'asset', selected.id, selected.serial_number, { employee: emp?.name });
-      showToast('Activo asignado');
+      await logAction('assigned', 'asset', selected.id, selected.serial_number, { employee: emp?.name, assetIds });
+      showToast(assetIds.length > 1 ? `Puesto asignado con ${assetIds.length} activos` : 'Activo asignado');
     } else {
       showToast('Asignación liberada');
     }
@@ -565,6 +579,8 @@ ${warrantyWarning}${eolWarning}
             <option value="available">Disponibles</option>
             <option value="assigned">Ocupados</option>
             <option value="unlocated">Sin ubicacion</option>
+            <option value="unlinked_peripheral">Perifericos sin equipo</option>
+            <option value="missing_technical">Equipos sin ficha tecnica</option>
           </select>
           <div className="ml-auto flex items-center gap-2">
             <span className="text-sm text-gray-500">{filtered.length} activos</span>
@@ -642,7 +658,7 @@ ${warrantyWarning}${eolWarning}
                           <td className="px-4 py-3">{statusBadge(a.status)}</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1 justify-end">
-                              <button onClick={() => { setSelected(a); setAssignEmployeeId(currentEmployee(a.id)?.id ?? 'none'); setDetailOpen(true); }} className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors" title="Asignar"><Eye size={15} /></button>
+                              <button onClick={() => { setSelected(a); setAssignEmployeeId(currentEmployee(a.id)?.id ?? 'none'); setAssignWithPeripherals(true); setDetailOpen(true); }} className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors" title="Asignar"><Eye size={15} /></button>
                               <button onClick={() => openHistory(a)} className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-600 transition-colors" title="Historial"><History size={15} /></button>
                               <button onClick={() => { setSelected(a); setQrOpen(true); }} className="p-1.5 rounded-lg hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition-colors" title="Código QR"><QrCode size={15} /></button>
                               <button onClick={() => { setEditing({ ...a }); setModalOpen(true); }} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors" title="Editar"><Pencil size={15} /></button>
@@ -818,6 +834,19 @@ ${warrantyWarning}${eolWarning}
                   <option value="none">Sin asignar</option>
                   {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
                 </select>
+                {isComputerAsset(selected.asset_type) && linkedPeripherals(selected.id).length > 0 && (
+                  <label className="flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 mb-3 text-sm text-blue-800">
+                    <input
+                      type="checkbox"
+                      checked={assignWithPeripherals}
+                      onChange={e => setAssignWithPeripherals(e.target.checked)}
+                      className="mt-1"
+                    />
+                    <span>
+                      Asignar tambien los {linkedPeripherals(selected.id).length} perifericos vinculados a este puesto.
+                    </span>
+                  </label>
+                )}
                 <button onClick={assign} className="btn-primary w-full">Guardar Asignación</button>
               </div>
             </div>
