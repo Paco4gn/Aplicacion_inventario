@@ -43,6 +43,7 @@ const emptyAsset: Partial<Asset> = {
   operating_system: '', ip_address: '', mac_address: '', processor: '',
   ram_gb: null, storage_gb: null, last_inventory_at: null,
   warranty_expiry: null, end_of_life: null, parent_asset_id: null, notes: '', image_url: '',
+  screen_size: '', resolution: '', connection_type: '', toner_model: '', imei: '', sim_number: '', assigned_position: '',
 };
 
 function statusBadge(s: string) {
@@ -62,6 +63,15 @@ function isPeripheralAsset(type?: string | null) {
 
 function assetTypeLabel(type?: string | null) {
   return ASSET_TYPES.find(t => t.value === type)?.label ?? type ?? 'Otro activo';
+}
+
+function peripheralFieldHints(type?: string | null) {
+  if (type === 'Monitor') return { primary: 'Pulgadas', secondary: 'Resolucion', connection: 'Conexion', placeholder: 'HDMI / DP / USB-C' };
+  if (type === 'Printer') return { primary: 'Consumible', secondary: 'IP / cola', connection: 'Conexion', placeholder: 'Red / USB / WiFi' };
+  if (type === 'Keyboard' || type === 'Mouse') return { primary: 'Formato', secondary: 'Idioma / DPI', connection: 'Conexion', placeholder: 'USB / Bluetooth / Inalambrico' };
+  if (type === 'Dock') return { primary: 'Potencia', secondary: 'Puertos', connection: 'Conexion', placeholder: 'USB-C / Thunderbolt' };
+  if (type === 'UPS') return { primary: 'Potencia', secondary: 'Autonomia', connection: 'Conexion', placeholder: 'USB / Red' };
+  return { primary: 'Caracteristica principal', secondary: 'Detalle tecnico', connection: 'Conexion', placeholder: 'USB / Red / Bluetooth' };
 }
 
 function normalizeAssetType(value?: string | null) {
@@ -282,6 +292,14 @@ export function Assets() {
         storage_gb: null,
         last_inventory_at: null,
       }),
+      ...(isComputerAsset(editing.asset_type) ? {
+        screen_size: '',
+        resolution: '',
+        connection_type: '',
+        toner_model: '',
+        imei: '',
+        sim_number: '',
+      } : {}),
       parent_asset_id: isPeripheralAsset(editing.asset_type) ? (editing.parent_asset_id || null) : null,
     };
 
@@ -440,11 +458,24 @@ ${warrantyWarning}${eolWarning}
       { key: 'brand', label: 'Marca' },
       { key: 'model', label: 'Modelo' },
       { key: 'status', label: 'Estado' },
+      { key: 'assigned_position', label: 'Puesto' },
+      { key: 'parent_asset_id', label: 'Equipo vinculado' },
       { key: 'location', label: 'Ubicación' },
       { key: 'purchase_date', label: 'Fecha Compra' },
       { key: 'purchase_value', label: 'Valor €' },
       { key: 'warranty_expiry', label: 'Fin Garantía' },
       { key: 'end_of_life', label: 'Fin de Vida' },
+      { key: 'operating_system', label: 'Sistema operativo' },
+      { key: 'processor', label: 'Procesador' },
+      { key: 'ip_address', label: 'IP' },
+      { key: 'mac_address', label: 'MAC' },
+      { key: 'ram_gb', label: 'RAM GB' },
+      { key: 'storage_gb', label: 'Disco GB' },
+      { key: 'last_inventory_at', label: 'Ultimo inventario' },
+      { key: 'screen_size', label: 'Caracteristica periferico' },
+      { key: 'resolution', label: 'Detalle periferico' },
+      { key: 'connection_type', label: 'Conexion' },
+      { key: 'toner_model', label: 'Consumible' },
       { key: 'notes', label: 'Notas' },
     ]);
   }
@@ -717,6 +748,7 @@ ${warrantyWarning}${eolWarning}
             <FormField label="Marca"><input value={editing.brand ?? ''} onChange={e => setEditing(p => ({ ...p, brand: e.target.value }))} className="input" maxLength={100} /></FormField>
             <FormField label="Modelo"><input value={editing.model ?? ''} onChange={e => setEditing(p => ({ ...p, model: e.target.value }))} className="input" maxLength={100} /></FormField>
             <FormField label="Ubicación"><input value={editing.location ?? ''} onChange={e => setEditing(p => ({ ...p, location: e.target.value }))} className="input" maxLength={200} /></FormField>
+            <FormField label="Puesto / mesa"><input value={editing.assigned_position ?? ''} onChange={e => setEditing(p => ({ ...p, assigned_position: e.target.value }))} className="input" maxLength={100} placeholder="Recepcion, Mesa 4, Sala..." /></FormField>
             <FormField label="Fecha Compra"><input type="date" value={editing.purchase_date ?? ''} onChange={e => setEditing(p => ({ ...p, purchase_date: e.target.value || null }))} className="input" /></FormField>
             <FormField label="Valor (€)"><input type="number" step="0.01" min="0" value={editing.purchase_value ?? ''} onChange={e => setEditing(p => ({ ...p, purchase_value: e.target.value ? parseFloat(e.target.value) : null }))} className="input" /></FormField>
             <FormField label="Imagen URL"><input value={editing.image_url ?? ''} onChange={e => setEditing(p => ({ ...p, image_url: e.target.value }))} className="input" placeholder="https://..." /></FormField>
@@ -754,6 +786,7 @@ ${warrantyWarning}${eolWarning}
             ) : (
               <div className="col-span-2 space-y-3">
                 {isPeripheralAsset(editing.asset_type) && (
+                  <div className="space-y-3">
                   <FormField label="Vincular a equipo">
                     <select value={editing.parent_asset_id ?? ''} onChange={e => setEditing(p => ({ ...p, parent_asset_id: e.target.value || null }))} className="input">
                       <option value="">Sin equipo vinculado</option>
@@ -762,6 +795,21 @@ ${warrantyWarning}${eolWarning}
                         .map(a => <option key={a.id} value={a.id}>{a.serial_number} · {assetTypeLabel(a.asset_type)} · {a.brand} {a.model}</option>)}
                     </select>
                   </FormField>
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField label={peripheralFieldHints(editing.asset_type).primary}>
+                      <input value={editing.screen_size ?? ''} onChange={e => setEditing(p => ({ ...p, screen_size: e.target.value }))} className="input" maxLength={100} />
+                    </FormField>
+                    <FormField label={peripheralFieldHints(editing.asset_type).secondary}>
+                      <input value={editing.resolution ?? ''} onChange={e => setEditing(p => ({ ...p, resolution: e.target.value }))} className="input" maxLength={120} />
+                    </FormField>
+                    <FormField label={peripheralFieldHints(editing.asset_type).connection}>
+                      <input value={editing.connection_type ?? ''} onChange={e => setEditing(p => ({ ...p, connection_type: e.target.value }))} className="input" maxLength={100} placeholder={peripheralFieldHints(editing.asset_type).placeholder} />
+                    </FormField>
+                    <FormField label="Toner / consumible">
+                      <input value={editing.toner_model ?? ''} onChange={e => setEditing(p => ({ ...p, toner_model: e.target.value }))} className="input" maxLength={100} />
+                    </FormField>
+                  </div>
+                  </div>
                 )}
                 <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
                   Este tipo se tratara como periferico. Solo se guardan datos utiles: serie, marca, modelo, ubicacion, estado, garantia, valor, imagen y notas.
@@ -787,6 +835,15 @@ ${warrantyWarning}${eolWarning}
                 <DetailItem label="Marca/Modelo" value={`${selected.brand} ${selected.model}`} />
                 <DetailItem label="Estado" value={statusBadge(selected.status)} />
                 <DetailItem label="Empleado actual" value={currentEmployee(selected.id)?.name ?? 'Sin asignar'} />
+                <DetailItem label="Puesto / mesa" value={selected.assigned_position || 'Sin puesto'} />
+                {isPeripheralAsset(selected.asset_type) && (
+                  <>
+                    <DetailItem label={peripheralFieldHints(selected.asset_type).primary} value={selected.screen_size || '-'} />
+                    <DetailItem label={peripheralFieldHints(selected.asset_type).secondary} value={selected.resolution || '-'} />
+                    <DetailItem label="Conexion" value={selected.connection_type || '-'} />
+                    <DetailItem label="Consumible" value={selected.toner_model || '-'} />
+                  </>
+                )}
                 <DetailItem label="Equipo vinculado" value={parentAsset(selected)?.serial_number ?? 'â€”'} />
                 <DetailItem label="Ubicación" value={selected.location || '—'} />
                 {(selected.operating_system || selected.ip_address || selected.mac_address || selected.processor) && (

@@ -16,7 +16,9 @@ function json(data: unknown, status = 200) {
 
 function statusLabel(status: string) {
   if (status === "open") return "Abierta";
+  if (status === "assigned") return "Asignada";
   if (status === "in_progress") return "En progreso";
+  if (status === "waiting_user") return "Pendiente usuario";
   if (status === "resolved") return "Resuelta";
   if (status === "closed") return "Cerrada";
   return status;

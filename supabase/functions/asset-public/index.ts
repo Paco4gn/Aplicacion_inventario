@@ -58,7 +58,7 @@ Deno.serve(async (req: Request) => {
           .from("incidents")
           .select("id", { count: "exact", head: true })
           .eq("asset_id", asset.id)
-          .in("status", ["open", "in_progress"]),
+          .in("status", ["open", "assigned", "in_progress", "waiting_user"]),
         supabase
           .from("incidents")
           .select("id, title, status, priority, opened_at")

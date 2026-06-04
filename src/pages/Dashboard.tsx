@@ -271,7 +271,7 @@ export function Dashboard() {
       ] = await Promise.all([
         supabase.from('assets').select('*').order('serial_number'),
         supabase.from('asset_assignments').select('asset_id, employee:employees(name)').is('returned_at', null),
-        supabase.from('incidents').select('*, asset:assets(serial_number,location), employee:employees(name)').in('status', ['open', 'in_progress']).order('opened_at', { ascending: false }),
+        supabase.from('incidents').select('*, asset:assets(serial_number,location), employee:employees(name)').in('status', ['open', 'assigned', 'in_progress', 'waiting_user']).order('opened_at', { ascending: false }),
         supabase.from('licenses').select('*, software:software(name,vendor)').order('expiry_date'),
         supabase.from('components').select('stock, min_stock'),
       ]);

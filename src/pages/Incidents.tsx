@@ -25,7 +25,9 @@ const PRIORITIES = [
 
 const STATUSES = [
   { value: 'open', label: 'Abierta' },
+  { value: 'assigned', label: 'Asignada' },
   { value: 'in_progress', label: 'En Progreso' },
+  { value: 'waiting_user', label: 'Pendiente usuario' },
   { value: 'resolved', label: 'Resuelta' },
   { value: 'closed', label: 'Cerrada' },
 ];
@@ -33,7 +35,7 @@ const STATUSES = [
 const emptyIncident: Partial<Incident> = {
   title: '', description: '', asset_id: null, employee_id: null, assigned_to_id: null,
   assigned_to_email: null, assigned_to_name: null,
-  status: 'open', priority: 'medium', resolution: '',
+  status: 'open', priority: 'medium', resolution: '', due_at: null, started_at: null, resolved_at: null,
 };
 
 const emptyRecipient: Partial<IncidentNotificationRecipient> = { email: '', name: '', enabled: true };
@@ -47,9 +49,27 @@ function priorityBadge(p: string) {
 
 function statusBadge(s: string) {
   if (s === 'open') return <Badge variant="danger">Abierta</Badge>;
+  if (s === 'assigned') return <Badge variant="info">Asignada</Badge>;
   if (s === 'in_progress') return <Badge variant="warning">En Progreso</Badge>;
+  if (s === 'waiting_user') return <Badge variant="neutral">Pendiente usuario</Badge>;
   if (s === 'resolved') return <Badge variant="info">Resuelta</Badge>;
   return <Badge variant="success">Cerrada</Badge>;
+}
+
+function dueBadge(dueAt?: string | null, status?: string) {
+  if (!dueAt || status === 'closed' || status === 'resolved') return <span className="text-gray-400">-</span>;
+  const days = Math.ceil((new Date(dueAt).getTime() - Date.now()) / 86400000);
+  if (days < 0) return <Badge variant="danger">Vencida</Badge>;
+  if (days <= 1) return <Badge variant="warning">Hoy/mañana</Badge>;
+  return <Badge variant="neutral">{days} dias</Badge>;
+}
+
+function defaultDueAt(priority?: string) {
+  const days = priority === 'critical' ? 1 : priority === 'high' ? 3 : priority === 'medium' ? 7 : 15;
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setHours(18, 0, 0, 0);
+  return date.toISOString();
 }
 
 export function Incidents() {
@@ -235,6 +255,9 @@ export function Incidents() {
       assigned_to_id: null,
       assigned_to_email: editing.assigned_to_email || null,
       assigned_to_name: editing.assigned_to_name || null,
+      due_at: editing.due_at || defaultDueAt(editing.priority),
+      started_at: editing.status === 'in_progress' ? (editing.started_at ?? new Date().toISOString()) : editing.started_at ?? null,
+      resolved_at: editing.status === 'resolved' || editing.status === 'closed' ? (editing.resolved_at ?? new Date().toISOString()) : editing.resolved_at ?? null,
       closed_at: editing.status === 'closed' ? (editing.closed_at ?? new Date().toISOString()) : null,
     };
     if (editing.id) {
@@ -295,7 +318,7 @@ export function Incidents() {
 
   async function closeIncident(inc: Incident) {
     await supabase.from('incidents')
-      .update({ status: 'closed', closed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update({ status: 'closed', resolved_at: inc.resolved_at ?? new Date().toISOString(), closed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', inc.id);
     await logAction('closed', 'incident', inc.id, inc.title);
     showToast('Incidencia cerrada');
@@ -322,11 +345,14 @@ export function Incidents() {
   async function bulkUpdateStatus() {
     const ids = Array.from(selectedIds);
     const now = new Date().toISOString();
-    await supabase.from('incidents').update({
+    const payload: Partial<Incident> = {
       status: bulkStatus,
+      resolved_at: bulkStatus === 'resolved' || bulkStatus === 'closed' ? now : null,
       closed_at: bulkStatus === 'closed' ? now : null,
       updated_at: now,
-    }).in('id', ids);
+    };
+    if (bulkStatus === 'in_progress') payload.started_at = now;
+    await supabase.from('incidents').update(payload).in('id', ids);
     showToast(`${ids.length} incidencias actualizadas`);
     clearSelection();
     load();
@@ -340,6 +366,7 @@ export function Incidents() {
       { key: 'assigned_to_email', label: 'Asignado a' },
       { key: 'description', label: 'Descripción' },
       { key: 'resolution', label: 'Resolución' },
+      { key: 'due_at', label: 'Fecha limite' },
       { key: 'opened_at', label: 'Apertura' },
       { key: 'closed_at', label: 'Cierre' },
     ]);
@@ -415,13 +442,14 @@ export function Incidents() {
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Asignado a</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Prioridad</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Estado</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">SLA</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Apertura</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
               {loading
-                ? Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} cols={9} />)
+                ? Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} cols={10} />)
                 : paginated.map(inc => {
                     const isChecked = selectedIds.has(inc.id);
                     return (
@@ -443,6 +471,7 @@ export function Incidents() {
                         </td>
                         <td className="px-4 py-3">{priorityBadge(inc.priority)}</td>
                         <td className="px-4 py-3">{statusBadge(inc.status)}</td>
+                        <td className="px-4 py-3">{dueBadge(inc.due_at, inc.status)}</td>
                         <td className="px-4 py-3 text-gray-500">{new Date(inc.opened_at).toLocaleDateString('es-ES')}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1 justify-end">
@@ -467,7 +496,7 @@ export function Incidents() {
                   })
               }
               {!loading && paginated.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-10 text-center text-gray-400">No se encontraron incidencias</td></tr>
+                <tr><td colSpan={10} className="px-4 py-10 text-center text-gray-400">No se encontraron incidencias</td></tr>
               )}
             </tbody>
           </table>
@@ -523,7 +552,7 @@ export function Incidents() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Prioridad</label>
-              <select value={editing.priority ?? 'medium'} onChange={e => setEditing(p => ({ ...p, priority: e.target.value as Incident['priority'] }))} className="input">
+              <select value={editing.priority ?? 'medium'} onChange={e => setEditing(p => ({ ...p, priority: e.target.value as Incident['priority'], due_at: p.due_at ?? defaultDueAt(e.target.value) }))} className="input">
                 {PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
               </select>
             </div>
@@ -532,6 +561,15 @@ export function Incidents() {
               <select value={editing.status ?? 'open'} onChange={e => setEditing(p => ({ ...p, status: e.target.value as Incident['status'] }))} className="input">
                 {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Fecha limite / SLA</label>
+              <input
+                type="datetime-local"
+                value={editing.due_at ? editing.due_at.slice(0, 16) : ''}
+                onChange={e => setEditing(p => ({ ...p, due_at: e.target.value ? new Date(e.target.value).toISOString() : null }))}
+                className="input"
+              />
             </div>
           </div>
           <div>
@@ -548,7 +586,7 @@ export function Incidents() {
       <Modal open={detailOpen} onClose={() => setDetailOpen(false)} title={`Seguimiento: ${selected?.title ?? ''}`} size="lg">
         {selected && (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2">
                 <p className="text-xs text-gray-400 mb-1">Estado</p>
                 {statusBadge(selected.status)}
@@ -564,6 +602,10 @@ export function Incidents() {
               <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2">
                 <p className="text-xs text-gray-400 mb-1">Responsable</p>
                 <p className="text-sm font-semibold text-gray-800 truncate">{(selected.assigned_to as { name?: string } | null)?.name ?? 'Avisos generales'}</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2">
+                <p className="text-xs text-gray-400 mb-1">SLA</p>
+                {dueBadge(selected.due_at, selected.status)}
               </div>
             </div>
 

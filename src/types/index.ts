@@ -1,6 +1,6 @@
 export type AssetStatus = 'active' | 'storage' | 'repair' | 'retired';
 export type AssetType = 'Laptop' | 'Torre' | 'Server' | 'Printer' | 'Monitor' | 'Keyboard' | 'Mouse' | 'Dock' | 'Webcam' | 'Headset' | 'Projector' | 'Scanner' | 'UPS' | 'Peripheral' | 'Other';
-export type IncidentStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+export type IncidentStatus = 'open' | 'assigned' | 'in_progress' | 'waiting_user' | 'resolved' | 'closed';
 export type IncidentPriority = 'low' | 'medium' | 'high' | 'critical';
 export type MovementType = 'in' | 'out';
 export type LicenseType = 'commercial' | 'oem' | 'volume' | 'freeware';
@@ -37,6 +37,13 @@ export interface Asset {
   storage_gb: number | null;
   last_inventory_at: string | null;
   parent_asset_id: string | null;
+  screen_size: string;
+  resolution: string;
+  connection_type: string;
+  toner_model: string;
+  imei: string;
+  sim_number: string;
+  assigned_position: string;
   notes: string;
   image_url: string;
   created_at: string;
@@ -69,6 +76,9 @@ export interface Incident {
   status: IncidentStatus;
   priority: IncidentPriority;
   resolution: string;
+  due_at: string | null;
+  started_at: string | null;
+  resolved_at: string | null;
   opened_at: string;
   closed_at: string | null;
   created_at: string;
