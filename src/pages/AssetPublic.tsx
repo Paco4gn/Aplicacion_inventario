@@ -56,9 +56,11 @@ interface PublicData {
   employees: PublicEmployee[];
 }
 
-function apiFetch(serial: string, method: string, body?: object) {
+function apiFetch(serial: string, method: string, body?: object, techPin?: string) {
+  const params = new URLSearchParams({ serial });
+  if (techPin) params.set('tech_pin', techPin);
   return fetch(
-    `${SUPABASE_URL}/functions/v1/asset-public?serial=${encodeURIComponent(serial)}`,
+    `${SUPABASE_URL}/functions/v1/asset-public?${params.toString()}`,
     {
       method,
       headers: {
@@ -77,6 +79,7 @@ function daysUntil(date: string | null) {
 
 function statusMeta(s: string) {
   if (s === 'active')  return { label: 'Activo',          Icon: CheckCircle, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' };
+  if (s === 'storage') return { label: 'Almacén',         Icon: Package,     color: 'text-blue-600',    bg: 'bg-blue-50',    border: 'border-blue-200' };
   if (s === 'repair')  return { label: 'En Reparación',   Icon: Wrench,      color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-200'   };
   return               { label: 'Retirado',               Icon: Archive,     color: 'text-gray-500',    bg: 'bg-gray-50',    border: 'border-gray-200'    };
 }
@@ -91,6 +94,7 @@ function priorityMeta(p: string) {
 function incidentStatusMeta(s: string) {
   if (s === 'open')        return { label: 'Abierta',     color: 'text-red-600'   };
   if (s === 'in_progress') return { label: 'En progreso', color: 'text-amber-600' };
+  if (s === 'resolved')    return { label: 'Resuelta',    color: 'text-blue-600' };
   return                   { label: 'Cerrada',            color: 'text-emerald-600' };
 }
 
@@ -173,7 +177,7 @@ function buildPrintHtml(asset: PublicAsset, qrSrc: string, statusLabel: string):
 }
 
 function PrintLabelModal({ asset, qrSrc, onClose }: { asset: PublicAsset; qrSrc: string; onClose: () => void }) {
-  const statusLabel = asset.status === 'active' ? 'Activo' : asset.status === 'repair' ? 'En reparación' : 'Retirado';
+  const statusLabel = asset.status === 'active' ? 'Activo' : asset.status === 'storage' ? 'Almacén' : asset.status === 'repair' ? 'En reparación' : 'Retirado';
 
   function handlePrint() {
     const html = buildPrintHtml(asset, qrSrc, statusLabel);
@@ -364,11 +368,17 @@ export default function AssetPublic({ serial }: { serial: string }) {
   const [techSaving, setTechSaving] = useState(false);
   const [techSuccess, setTechSuccess] = useState(false);
 
-  const fetchData = useCallback(async (showRefresh = false) => {
+  const fetchData = useCallback(async (showRefresh = false, techPin?: string) => {
     if (showRefresh) setRefreshing(true);
     try {
-      const res = await apiFetch(serial, 'GET');
+      const res = await apiFetch(serial, 'GET', undefined, techPin);
       if (res.status === 404) { setError('not_found'); return; }
+      if (res.status === 403) {
+        setPinError(true);
+        setTechUnlocked(false);
+        setShowPinModal(true);
+        return;
+      }
       if (!res.ok) { setError('error'); return; }
       setData(await res.json());
       setError(null);
@@ -407,10 +417,11 @@ export default function AssetPublic({ serial }: { serial: string }) {
   }
 
   function checkPin() {
-    if (pin === '1234') {
+    if (pin.trim().length >= 4) {
       setTechUnlocked(true);
       setShowPinModal(false);
       setPinError(false);
+      fetchData(false, pin.trim());
     } else {
       setPinError(true);
       setPin('');
@@ -422,7 +433,7 @@ export default function AssetPublic({ serial }: { serial: string }) {
     if (!data) return;
     setTechSaving(true);
     try {
-      const body: Record<string, unknown> = { pin: '1234' };
+      const body: Record<string, unknown> = { pin: pin.trim() };
       if (techStatus) body.status = techStatus;
       if (techLocation.trim()) body.location = techLocation.trim();
       if (techNotes.trim() !== '') body.notes = techNotes.trim();
@@ -435,8 +446,12 @@ export default function AssetPublic({ serial }: { serial: string }) {
         setTechLocation('');
         setTechNotes('');
         setTechEmployeeId('__unchanged__');
-        fetchData();
+        fetchData(false, pin.trim());
         setTimeout(() => setTechSuccess(false), 4000);
+      } else if (res.status === 403) {
+        setPinError(true);
+        setTechUnlocked(false);
+        setShowPinModal(true);
       }
     } finally {
       setTechSaving(false);
@@ -626,6 +641,7 @@ export default function AssetPublic({ serial }: { serial: string }) {
                       className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-400 bg-white"
                     >
                       <option value="active">Activo</option>
+                      <option value="storage">Almacén</option>
                       <option value="repair">En Reparación</option>
                       <option value="retired">Retirado</option>
                     </select>
@@ -703,6 +719,11 @@ export default function AssetPublic({ serial }: { serial: string }) {
                   <p className="text-[10px] text-gray-400">Desde</p>
                   <p className="text-xs font-medium text-gray-600">{new Date(assignment.assigned_at).toLocaleDateString('es-ES')}</p>
                 </div>
+              </div>
+            ) : assignment ? (
+              <div className="flex items-center gap-2 text-gray-500 py-1">
+                <Lock size={15} />
+                <span className="text-sm">Asignacion protegida. Desbloquea el panel tecnico para verla.</span>
               </div>
             ) : (
               <div className="flex items-center gap-2 text-gray-400 py-1">

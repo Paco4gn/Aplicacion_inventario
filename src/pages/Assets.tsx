@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { Plus, Pencil, Trash2, Monitor, Eye, Download, Upload, QrCode, History, CheckSquare, Square, X, ShieldAlert, ShieldCheck, ShieldOff, Printer } from 'lucide-react';
+import { Plus, Pencil, Trash2, Monitor, Eye, Download, Upload, QrCode, History, CheckSquare, Square, X, ShieldAlert, ShieldCheck, ShieldOff, Printer, Laptop, Server, Keyboard, Mouse, Package } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logAction } from '../lib/audit';
 import { exportCSV, parseCSV } from '../lib/csv';
@@ -13,9 +13,26 @@ import { SkeletonRow } from '../components/ui/SkeletonRow';
 import type { Asset, Employee, AssetAssignment } from '../types';
 
 const PAGE_SIZE = 15;
-const ASSET_TYPES = ['Laptop', 'Torre', 'Server', 'Printer', 'Monitor', 'Peripheral', 'Other'];
+const ASSET_TYPES = [
+  { value: 'Laptop', label: 'Portatil', group: 'Equipos' },
+  { value: 'Torre', label: 'Torre', group: 'Equipos' },
+  { value: 'Server', label: 'Servidor', group: 'Equipos' },
+  { value: 'Printer', label: 'Impresora', group: 'Perifericos' },
+  { value: 'Monitor', label: 'Monitor', group: 'Perifericos' },
+  { value: 'Keyboard', label: 'Teclado', group: 'Perifericos' },
+  { value: 'Mouse', label: 'Raton', group: 'Perifericos' },
+  { value: 'Dock', label: 'Docking station', group: 'Perifericos' },
+  { value: 'Webcam', label: 'Webcam', group: 'Perifericos' },
+  { value: 'Headset', label: 'Auriculares', group: 'Perifericos' },
+  { value: 'Projector', label: 'Proyector', group: 'Perifericos' },
+  { value: 'Scanner', label: 'Escaner', group: 'Perifericos' },
+  { value: 'UPS', label: 'SAI / UPS', group: 'Perifericos' },
+  { value: 'Peripheral', label: 'Otro periferico', group: 'Perifericos' },
+  { value: 'Other', label: 'Otro activo', group: 'Otros' },
+] as const;
 const STATUSES = [
   { value: 'active', label: 'Activo' },
+  { value: 'storage', label: 'Almacén' },
   { value: 'repair', label: 'En Reparación' },
   { value: 'retired', label: 'Retirado' },
 ];
@@ -30,8 +47,36 @@ const emptyAsset: Partial<Asset> = {
 
 function statusBadge(s: string) {
   if (s === 'active') return <Badge variant="success">Activo</Badge>;
+  if (s === 'storage') return <Badge variant="info">Almacén</Badge>;
   if (s === 'repair') return <Badge variant="warning">Reparación</Badge>;
   return <Badge variant="danger">Retirado</Badge>;
+}
+
+function isComputerAsset(type?: string | null) {
+  return ['Laptop', 'Torre', 'Server'].includes(type ?? '');
+}
+
+function assetTypeLabel(type?: string | null) {
+  return ASSET_TYPES.find(t => t.value === type)?.label ?? type ?? 'Otro activo';
+}
+
+function normalizeAssetType(value?: string | null) {
+  const raw = (value ?? '').trim();
+  if (!raw) return 'Other';
+  const direct = ASSET_TYPES.find(t => t.value.toLowerCase() === raw.toLowerCase());
+  if (direct) return direct.value;
+  const byLabel = ASSET_TYPES.find(t => t.label.toLowerCase() === raw.toLowerCase());
+  return byLabel?.value ?? raw;
+}
+
+function AssetTypeIcon({ type }: { type?: string | null }) {
+  if (type === 'Laptop') return <Laptop size={14} className="text-gray-400" />;
+  if (type === 'Torre' || type === 'Monitor') return <Monitor size={14} className="text-gray-400" />;
+  if (type === 'Server') return <Server size={14} className="text-gray-400" />;
+  if (type === 'Printer') return <Printer size={14} className="text-gray-400" />;
+  if (type === 'Keyboard') return <Keyboard size={14} className="text-gray-400" />;
+  if (type === 'Mouse') return <Mouse size={14} className="text-gray-400" />;
+  return <Package size={14} className="text-gray-400" />;
 }
 
 function warrantyBadge(expiry: string | null) {
@@ -163,7 +208,7 @@ export function Assets() {
   const filtered = assets.filter(a => {
     const q = search.toLowerCase();
     const emp = currentEmployee(a.id);
-    const isAvailable = a.status === 'active' && !emp;
+    const isAvailable = (a.status === 'active' || a.status === 'storage') && !emp;
     return (
       (!q || a.serial_number.toLowerCase().includes(q) || a.brand.toLowerCase().includes(q)
         || a.model.toLowerCase().includes(q) || a.location.toLowerCase().includes(q)
@@ -199,19 +244,31 @@ export function Assets() {
 
   async function save() {
     const sn = editing.serial_number?.trim() ?? '';
-    const nm = editing.name?.trim() ?? '';
+    const nm = editing.name?.trim() || sn;
     if (!sn) { showToast('Nº de serie es obligatorio', 'error'); return; }
-    if (!nm) { showToast('Nombre es obligatorio', 'error'); return; }
+    const payload: Partial<Asset> = {
+      ...editing,
+      name: nm,
+      ...(isComputerAsset(editing.asset_type) ? {} : {
+        operating_system: '',
+        ip_address: '',
+        mac_address: '',
+        processor: '',
+        ram_gb: null,
+        storage_gb: null,
+        last_inventory_at: null,
+      }),
+    };
 
     if (editing.id) {
       const { error } = await supabase.from('assets')
-        .update({ ...editing, updated_at: new Date().toISOString() })
+        .update({ ...payload, updated_at: new Date().toISOString() })
         .eq('id', editing.id);
       if (error) { showToast('Error al actualizar', 'error'); return; }
       await logAction('updated', 'asset', editing.id, sn);
       showToast('Activo actualizado');
     } else {
-      const { data, error } = await supabase.from('assets').insert([editing]).select().maybeSingle();
+      const { data, error } = await supabase.from('assets').insert([payload]).select().maybeSingle();
       if (error) {
         showToast(error.message.includes('unique') ? 'Nº de serie ya existe' : 'Error al crear', 'error');
         return;
@@ -287,6 +344,7 @@ export function Assets() {
         label: i.title,
         sublabel: i.resolution || 'Sin resolución',
         badge: i.status === 'closed' ? <Badge variant="success">Cerrada</Badge>
+          : i.status === 'resolved' ? <Badge variant="info">Resuelta</Badge>
           : i.status === 'in_progress' ? <Badge variant="warning">En Progreso</Badge>
           : <Badge variant="danger">Abierta</Badge>,
       })),
@@ -305,7 +363,7 @@ export function Assets() {
       ['Tipo', qrAsset.asset_type],
       ['Marca / Modelo', `${qrAsset.brand} ${qrAsset.model}`],
       ['Ubicación', qrAsset.location || '—'],
-      ['Estado', qrAsset.status === 'active' ? 'Activo' : qrAsset.status === 'repair' ? 'En Reparación' : 'Retirado'],
+      ['Estado', qrAsset.status === 'active' ? 'Activo' : qrAsset.status === 'storage' ? 'Almacén' : qrAsset.status === 'repair' ? 'En Reparación' : 'Retirado'],
       ['Asignado a', employee?.name ?? 'Sin asignar'],
       ['Fin de Garantía', qrAsset.warranty_expiry ? new Date(qrAsset.warranty_expiry).toLocaleDateString('es-ES') : '—'],
       ['Fin de Vida', qrAsset.end_of_life ? new Date(qrAsset.end_of_life).toLocaleDateString('es-ES') : '—'],
@@ -426,7 +484,7 @@ ${warrantyWarning}${eolWarning}
     const toInsert = rows.map(r => ({
       serial_number: r['Nº Serie'] || r['serial_number'] || '',
       name: r['Nombre'] || r['name'] || r['Nº Serie'] || r['serial_number'] || '',
-      asset_type: r['Tipo'] || r['asset_type'] || 'Other',
+      asset_type: normalizeAssetType(r['Tipo'] || r['asset_type'] || 'Other'),
       brand: r['Marca'] || r['brand'] || '',
       model: r['Modelo'] || r['model'] || '',
       status: (r['Estado'] || r['status'] || 'active') as Asset['status'],
@@ -485,7 +543,7 @@ ${warrantyWarning}${eolWarning}
           </select>
           <select value={filterType} onChange={e => setFilterType(e.target.value)} className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white text-gray-700">
             <option value="">Todos los tipos</option>
-            {ASSET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            {ASSET_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
           <select value={filterAvailability} onChange={e => setFilterAvailability(e.target.value)} className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white text-gray-700">
             <option value="">Todos</option>
@@ -539,7 +597,7 @@ ${warrantyWarning}${eolWarning}
                             </button>
                           </td>
                           <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-700">{a.serial_number}</td>
-                          <td className="px-4 py-3"><span className="flex items-center gap-1.5 text-gray-700"><Monitor size={14} className="text-gray-400" />{a.asset_type}</span></td>
+                          <td className="px-4 py-3"><span className="flex items-center gap-1.5 text-gray-700"><AssetTypeIcon type={a.asset_type} />{assetTypeLabel(a.asset_type)}</span></td>
                           <td className="px-4 py-3 text-gray-700">{a.brand} {a.model}</td>
                           <td className="px-4 py-3 text-gray-500">{a.location || '—'}</td>
                           <td className="px-4 py-3">{emp ? <span className="text-gray-800 font-medium">{emp.name}</span> : <span className="text-gray-400 italic">Sin asignar</span>}</td>
@@ -581,10 +639,30 @@ ${warrantyWarning}${eolWarning}
         <Modal open={modalOpen} onClose={() => { setModalOpen(false); setEditing({ ...emptyAsset }); }} title={editing.id ? 'Editar Activo' : 'Nuevo Activo'} size="lg">
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Nº de Serie *"><input value={editing.serial_number ?? ''} onChange={e => setEditing(p => ({ ...p, serial_number: e.target.value }))} className="input" maxLength={100} /></FormField>
-            <FormField label="Nombre *"><input value={editing.name ?? ''} onChange={e => setEditing(p => ({ ...p, name: e.target.value }))} className="input" maxLength={200} /></FormField>
+            <FormField label="Nombre / etiqueta"><input value={editing.name ?? ''} onChange={e => setEditing(p => ({ ...p, name: e.target.value }))} className="input" maxLength={200} placeholder="Si lo dejas vacio se usara el numero de serie" /></FormField>
             <FormField label="Tipo">
-              <select value={editing.asset_type ?? 'Laptop'} onChange={e => setEditing(p => ({ ...p, asset_type: e.target.value }))} className="input">
-                {ASSET_TYPES.map(t => <option key={t}>{t}</option>)}
+              <select
+                value={editing.asset_type ?? 'Laptop'}
+                onChange={e => setEditing(p => ({
+                  ...p,
+                  asset_type: e.target.value,
+                  ...(!isComputerAsset(e.target.value) ? {
+                    operating_system: '',
+                    ip_address: '',
+                    mac_address: '',
+                    processor: '',
+                    ram_gb: null,
+                    storage_gb: null,
+                    last_inventory_at: null,
+                  } : {}),
+                }))}
+                className="input"
+              >
+                {['Equipos', 'Perifericos', 'Otros'].map(group => (
+                  <optgroup key={group} label={group}>
+                    {ASSET_TYPES.filter(t => t.group === group).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </optgroup>
+                ))}
               </select>
             </FormField>
             <FormField label="Estado">
@@ -604,6 +682,7 @@ ${warrantyWarning}${eolWarning}
             <FormField label="Fin de Vida (EOL)">
               <input type="date" value={editing.end_of_life ?? ''} onChange={e => setEditing(p => ({ ...p, end_of_life: e.target.value || null }))} className="input" />
             </FormField>
+            {isComputerAsset(editing.asset_type) ? (
             <div className="col-span-2 pt-2 border-t border-gray-100">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Inventario tecnico</p>
               <div className="grid grid-cols-2 gap-4">
@@ -616,6 +695,11 @@ ${warrantyWarning}${eolWarning}
                 <FormField label="Ultimo inventario"><input type="datetime-local" value={editing.last_inventory_at ? editing.last_inventory_at.slice(0, 16) : ''} onChange={e => setEditing(p => ({ ...p, last_inventory_at: e.target.value ? new Date(e.target.value).toISOString() : null }))} className="input" /></FormField>
               </div>
             </div>
+            ) : (
+              <div className="col-span-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                Este tipo se tratara como periferico. Solo se guardan datos utiles: serie, marca, modelo, ubicacion, estado, garantia, valor, imagen y notas.
+              </div>
+            )}
             <div className="col-span-2">
               <FormField label="Notas"><textarea rows={2} value={editing.notes ?? ''} onChange={e => setEditing(p => ({ ...p, notes: e.target.value }))} className="input resize-none" maxLength={1000} /></FormField>
             </div>
@@ -631,7 +715,7 @@ ${warrantyWarning}${eolWarning}
           {selected && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <DetailItem label="Tipo" value={selected.asset_type} />
+                <DetailItem label="Tipo" value={assetTypeLabel(selected.asset_type)} />
                 <DetailItem label="Marca/Modelo" value={`${selected.brand} ${selected.model}`} />
                 <DetailItem label="Estado" value={statusBadge(selected.status)} />
                 <DetailItem label="Ubicación" value={selected.location || '—'} />
@@ -697,7 +781,7 @@ ${warrantyWarning}${eolWarning}
                   />
                   <div className="flex-1 min-w-0 space-y-1.5 text-sm">
                     <p className="font-mono font-bold text-gray-900 text-base">{selected.serial_number}</p>
-                    <p className="text-gray-600">{selected.asset_type} · {selected.brand} {selected.model}</p>
+                    <p className="text-gray-600">{assetTypeLabel(selected.asset_type)} · {selected.brand} {selected.model}</p>
                     <div className="flex items-center gap-2 flex-wrap mt-1">
                       {statusBadge(selected.status)}
                       {warrantyBadge(selected.warranty_expiry)}

@@ -3,11 +3,11 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const TECH_PIN = "1234";
+const TECH_PIN = Deno.env.get("ASSET_PUBLIC_TECH_PIN") ?? "";
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -30,10 +30,13 @@ Deno.serve(async (req: Request) => {
 
     const url = new URL(req.url);
     const serial = url.searchParams.get("serial");
+    const techPin = url.searchParams.get("tech_pin");
+    const techAccess = Boolean(TECH_PIN && techPin && techPin === TECH_PIN);
 
     // ── GET: fetch asset data ──────────────────────────────────────────────
     if (req.method === "GET") {
       if (!serial) return json({ error: "serial is required" }, 400);
+      if (techPin && !techAccess) return json({ error: "invalid_pin" }, 403);
 
       const { data: asset, error } = await supabase
         .from("assets")
@@ -47,7 +50,7 @@ Deno.serve(async (req: Request) => {
       const [{ data: assignment }, { count: openIncidents }, { data: recentIncidents }, { data: employees }] = await Promise.all([
         supabase
           .from("asset_assignments")
-          .select("assigned_at, notes, employee:employees(id, name, department, position, email)")
+          .select(techAccess ? "assigned_at, notes, employee:employees(id, name, department, position)" : "assigned_at, notes, employee_id")
           .eq("asset_id", asset.id)
           .is("returned_at", null)
           .maybeSingle(),
@@ -55,23 +58,29 @@ Deno.serve(async (req: Request) => {
           .from("incidents")
           .select("id", { count: "exact", head: true })
           .eq("asset_id", asset.id)
-          .neq("status", "closed"),
+          .in("status", ["open", "in_progress"]),
         supabase
           .from("incidents")
           .select("id, title, status, priority, opened_at")
           .eq("asset_id", asset.id)
           .order("opened_at", { ascending: false })
           .limit(5),
-        supabase
-          .from("employees")
-          .select("id, name, department, position")
-          .eq("active", true)
-          .order("name"),
+        techAccess
+          ? supabase
+            .from("employees")
+            .select("id, name, department, position")
+            .eq("active", true)
+            .order("name")
+          : Promise.resolve({ data: [] }),
       ]);
 
       return json({
         asset,
-        assignment: assignment ?? null,
+        assignment: assignment ? {
+          assigned_at: assignment.assigned_at,
+          notes: assignment.notes,
+          employee: techAccess ? assignment.employee ?? null : null,
+        } : null,
         openIncidents: openIncidents ?? 0,
         recentIncidents: recentIncidents ?? [],
         employees: employees ?? [],
@@ -158,40 +167,6 @@ Deno.serve(async (req: Request) => {
       return json({ success: true, incident_id: incident?.id });
     }
 
-    // ── PATCH: update location (public, no PIN) ────────────────────────────
-    if (req.method === "PATCH") {
-      if (!serial) return json({ error: "serial is required" }, 400);
-
-      const body = await req.json();
-      const { location } = body;
-
-      if (!location?.trim()) return json({ error: "location is required" }, 400);
-
-      const { data: asset } = await supabase
-        .from("assets")
-        .select("id, serial_number")
-        .eq("serial_number", serial)
-        .maybeSingle();
-
-      if (!asset) return json({ error: "not_found" }, 404);
-
-      await supabase
-        .from("assets")
-        .update({ location: location.trim(), updated_at: new Date().toISOString() })
-        .eq("id", asset.id);
-
-      await supabase.from("audit_logs").insert([{
-        action: "updated_location",
-        entity_type: "asset",
-        entity_id: asset.id,
-        entity_name: asset.serial_number,
-        details: { new_location: location.trim(), source: "public_qr" },
-        performed_by: "public",
-      }]);
-
-      return json({ success: true });
-    }
-
     // ── PUT: tech panel update (PIN protected) ─────────────────────────────
     if (req.method === "PUT") {
       if (!serial) return json({ error: "serial is required" }, 400);
@@ -199,7 +174,7 @@ Deno.serve(async (req: Request) => {
       const body = await req.json();
       const { pin, status, location, notes, employee_id } = body;
 
-      if (pin !== TECH_PIN) return json({ error: "invalid_pin" }, 403);
+      if (!TECH_PIN || pin !== TECH_PIN) return json({ error: "invalid_pin" }, 403);
 
       const { data: asset } = await supabase
         .from("assets")

@@ -19,7 +19,7 @@ export function useAlertCounts() {
       const in30str = in30.toISOString().slice(0, 10);
 
       const [{ count: incidents }, { data: licenses }, { data: components }] = await Promise.all([
-        supabase.from('incidents').select('id', { count: 'exact', head: true }).neq('status', 'closed'),
+        supabase.from('incidents').select('id', { count: 'exact', head: true }).in('status', ['open', 'in_progress']),
         supabase.from('licenses').select('expiry_date').not('expiry_date', 'is', null).gte('expiry_date', today).lte('expiry_date', in30str),
         supabase.from('components').select('stock, min_stock'),
       ]);

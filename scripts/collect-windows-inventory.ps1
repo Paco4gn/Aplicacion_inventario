@@ -288,7 +288,7 @@ function Install-AgentTask {
     notes = $Notes
   }
 
-  $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$installedScriptPath`" -SyncToSupabase"
+  $arguments = "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$installedScriptPath`" -SyncToSupabase"
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments
   $repeatEvery = if ($IntervalDays -gt 0) { New-TimeSpan -Days $IntervalDays } else { New-TimeSpan -Minutes $IntervalMinutes }
   $triggers = @(
@@ -314,7 +314,15 @@ if ($Install) {
   if (-not $SupabaseUrl) { $SupabaseUrl = "https://dwudqkzkwsqwxshumlza.supabase.co" }
   if (-not $SupabaseAnonKey) { $SupabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3dWRxa3prd3Nxd3hzaHVtbHphIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNDM0NTYsImV4cCI6MjA5MjgxOTQ1Nn0.uJF1whOlEYgaNeXy4uJ1mXR6MONxuXSGdecJAyYWObo" }
   if (-not $SupabaseEmail) { $SupabaseEmail = "informatica@feval.com" }
-  if (-not $SupabasePassword) { $SupabasePassword = "p2p1l10n1t" }
+  if (-not $SupabasePassword) {
+    $securePassword = Read-Host "Introduce la contrasena del usuario de Supabase ($SupabaseEmail)" -AsSecureString
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+    try {
+      $SupabasePassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    } finally {
+      [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+  }
 }
 
 Apply-ConfigDefaults

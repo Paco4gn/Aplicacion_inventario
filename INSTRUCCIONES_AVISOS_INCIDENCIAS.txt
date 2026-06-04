@@ -1,0 +1,144 @@
+CONFIGURAR AVISOS POR EMAIL PARA INCIDENCIAS
+============================================
+
+Objetivo:
+- Que al crear o modificar incidencias llegue un correo.
+- Que puedas cambiar los destinatarios desde la aplicacion, en Incidencias > Avisos.
+- Destinatarios iniciales: jcromar@feval.com y fgallego@feval.com.
+
+
+PASO 1 - Aplicar la base de datos en Supabase
+--------------------------------------------
+
+1. Entra en Supabase:
+   https://supabase.com/dashboard
+
+2. Abre tu proyecto:
+   bolt-native-database-66170799
+
+3. Ve a:
+   SQL Editor
+
+4. Abre este archivo del proyecto:
+   supabase/migrations/20260518104500_add_incident_notifications.sql
+
+5. Copia TODO el contenido, pegalo en SQL Editor y pulsa Run.
+
+Esto crea:
+- El campo Responsable en incidencias.
+- La tabla de correos de aviso.
+- Los correos iniciales:
+  jcromar@feval.com
+  fgallego@feval.com
+
+
+PASO 2 - Instalar Supabase CLI en tu ordenador
+---------------------------------------------
+
+Abre PowerShell y ejecuta:
+
+npm install -g supabase
+
+Comprueba que funciona:
+
+supabase --version
+
+
+PASO 3 - Iniciar sesion en Supabase CLI
+--------------------------------------
+
+En PowerShell, dentro de la carpeta del proyecto:
+
+cd "C:\Users\fgallego\OneDrive - FEVAL - Institución Ferial de Extremadura\Documentos.trirural\New project\Aplicacion_inventario-main\Aplicacion_inventario-main"
+
+Ejecuta:
+
+supabase login
+
+Se abrira el navegador. Inicia sesion con la misma cuenta que usas en Supabase.
+
+
+PASO 4 - Enlazar el proyecto
+----------------------------
+
+En PowerShell:
+
+supabase link --project-ref dwudqkzkwsqwxshumlza
+
+
+PASO 5 - Desplegar las funciones
+--------------------------------
+
+Ejecuta:
+
+supabase functions deploy notify-incident
+supabase functions deploy asset-public
+
+
+PASO 6 - Crear cuenta o API key de Resend
+----------------------------------------
+
+Para enviar correos reales necesitas una clave de Resend:
+
+1. Entra en:
+   https://resend.com
+
+2. Crea cuenta o inicia sesion.
+
+3. Ve a:
+   API Keys
+
+4. Crea una API key.
+
+5. Copia la clave. Suele empezar por:
+   re_
+
+
+PASO 7 - Guardar secretos en Supabase
+-------------------------------------
+
+Sustituye TU_API_KEY_DE_RESEND por la clave real de Resend:
+
+supabase secrets set RESEND_API_KEY="TU_API_KEY_DE_RESEND"
+supabase secrets set INCIDENT_EMAIL_FROM="IT Inventario <onboarding@resend.dev>"
+supabase secrets set APP_URL="https://paco4gn.github.io/Aplicacion_inventario/"
+
+Nota:
+- Con onboarding@resend.dev normalmente puedes hacer pruebas.
+- Para usar soporte@feval.com o informatica@feval.com como remitente hay que verificar el dominio feval.com en Resend.
+
+
+PASO 8 - Probar
+---------------
+
+1. Entra en:
+   https://paco4gn.github.io/Aplicacion_inventario/
+
+2. Ve a Incidencias.
+
+3. Pulsa Avisos.
+
+4. Comprueba que estan:
+   jcromar@feval.com
+   fgallego@feval.com
+
+5. Crea una incidencia nueva.
+
+6. Debe llegar correo a los destinatarios activos.
+
+
+IMPORTANTE
+----------
+
+Si aun no has configurado RESEND_API_KEY:
+- La incidencia se crea igualmente.
+- La aplicacion no se rompe.
+- Pero no se enviara correo real hasta configurar la clave.
+
+Si quieres añadir o quitar correos:
+- Entra en Incidencias > Avisos.
+- Añade, pausa o elimina destinatarios desde ahi.
+
+Si quieres asignar una tarea:
+- Crea o edita una incidencia.
+- Usa el campo Responsable.

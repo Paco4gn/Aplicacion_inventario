@@ -5,10 +5,12 @@ import {
   CheckCircle,
   Cpu,
   HardDrive,
+  Keyboard,
   Key,
   Laptop,
   MapPin,
   Monitor,
+  Mouse,
   Package,
   Printer,
   Server,
@@ -50,7 +52,11 @@ interface LicenseAlert extends License {
 
 interface DashboardData {
   totalAssets: number;
+  computerAssets: AssetWithEmployee[];
+  peripheralAssets: AssetWithEmployee[];
   availableAssets: AssetWithEmployee[];
+  availableComputers: AssetWithEmployee[];
+  availablePeripherals: AssetWithEmployee[];
   occupiedAssets: AssetWithEmployee[];
   repairAssets: AssetWithEmployee[];
   retiredAssets: number;
@@ -80,7 +86,11 @@ interface DashboardData {
 
 const emptyData: DashboardData = {
   totalAssets: 0,
+  computerAssets: [],
+  peripheralAssets: [],
   availableAssets: [],
+  availableComputers: [],
+  availablePeripherals: [],
   occupiedAssets: [],
   repairAssets: [],
   retiredAssets: 0,
@@ -110,6 +120,7 @@ const emptyData: DashboardData = {
 
 function statusBadge(status: string) {
   if (status === 'active') return <Badge variant="success">Activo</Badge>;
+  if (status === 'storage') return <Badge variant="info">Almacen</Badge>;
   if (status === 'repair') return <Badge variant="warning">Reparacion</Badge>;
   return <Badge variant="danger">Retirado</Badge>;
 }
@@ -121,15 +132,46 @@ function priorityBadge(priority: string) {
   return <Badge variant="neutral">Baja</Badge>;
 }
 
+function isComputerAsset(type?: string | null) {
+  return ['Laptop', 'Torre', 'Server'].includes(type ?? '');
+}
+
+function isPeripheralAsset(type?: string | null) {
+  return ['Printer', 'Monitor', 'Keyboard', 'Mouse', 'Dock', 'Webcam', 'Headset', 'Projector', 'Scanner', 'UPS', 'Peripheral'].includes(type ?? '');
+}
+
+function assetTypeLabel(type?: string | null) {
+  const labels: Record<string, string> = {
+    Laptop: 'Portatil',
+    Torre: 'Torre',
+    Server: 'Servidor',
+    Printer: 'Impresora',
+    Monitor: 'Monitor',
+    Keyboard: 'Teclado',
+    Mouse: 'Raton',
+    Dock: 'Docking station',
+    Webcam: 'Webcam',
+    Headset: 'Auriculares',
+    Projector: 'Proyector',
+    Scanner: 'Escaner',
+    UPS: 'SAI / UPS',
+    Peripheral: 'Otro periferico',
+    Other: 'Otro activo',
+  };
+  return labels[type ?? ''] ?? type ?? 'Otro activo';
+}
+
 function assetTypeIcon(type: string) {
   const normalized = type.toLowerCase();
   if (normalized.includes('laptop')) return Laptop;
   if (normalized.includes('server')) return Server;
   if (normalized.includes('printer')) return Printer;
   if (normalized.includes('monitor')) return Monitor;
+  if (normalized.includes('keyboard')) return Keyboard;
+  if (normalized.includes('mouse')) return Mouse;
   if (normalized.includes('peripheral')) return Cpu;
   if (normalized.includes('torre')) return HardDrive;
-  return Monitor;
+  return Package;
 }
 
 function StatCard({
@@ -181,12 +223,15 @@ function AssetList({ assets, emptyText }: { assets: AssetWithEmployee[]; emptyTe
       {assets.slice(0, 8).map(asset => (
         <div key={asset.id} className="py-3 flex items-start gap-3">
           <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-            <Monitor size={14} className="text-blue-600" />
+            {(() => {
+              const Icon = assetTypeIcon(asset.asset_type || '');
+              return <Icon size={14} className="text-blue-600" />;
+            })()}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-mono text-xs font-bold text-gray-800">{asset.serial_number}</span>
-              <span className="text-xs text-gray-400">{asset.asset_type}</span>
+              <span className="text-xs text-gray-400">{assetTypeLabel(asset.asset_type)}</span>
             </div>
             <p className="text-xs text-gray-500 truncate">{asset.brand} {asset.model}</p>
             <div className="flex flex-wrap items-center gap-3 mt-1 text-[11px] text-gray-400">
@@ -222,7 +267,7 @@ export function Dashboard() {
       ] = await Promise.all([
         supabase.from('assets').select('*').order('serial_number'),
         supabase.from('asset_assignments').select('asset_id, employee:employees(name)').is('returned_at', null),
-        supabase.from('incidents').select('*, asset:assets(serial_number,location), employee:employees(name)').neq('status', 'closed').order('opened_at', { ascending: false }),
+        supabase.from('incidents').select('*, asset:assets(serial_number,location), employee:employees(name)').in('status', ['open', 'in_progress']).order('opened_at', { ascending: false }),
         supabase.from('licenses').select('*, software:software(name,vendor)').order('expiry_date'),
         supabase.from('components').select('stock, min_stock'),
       ]);
@@ -238,14 +283,19 @@ export function Dashboard() {
         employee_name: employeeByAsset[asset.id] ?? null,
       }));
 
-      const availableAssets = enrichedAssets.filter(asset => asset.status === 'active' && !asset.employee_name);
+      const computerAssets = enrichedAssets.filter(asset => isComputerAsset(asset.asset_type));
+      const peripheralAssets = enrichedAssets.filter(asset => isPeripheralAsset(asset.asset_type));
+      const availableAssets = enrichedAssets.filter(asset => (asset.status === 'active' || asset.status === 'storage') && !asset.employee_name);
+      const availableComputers = availableAssets.filter(asset => isComputerAsset(asset.asset_type));
+      const availablePeripherals = availableAssets.filter(asset => isPeripheralAsset(asset.asset_type));
       const occupiedAssets = enrichedAssets.filter(asset => Boolean(asset.employee_name));
       const repairAssets = enrichedAssets.filter(asset => asset.status === 'repair');
       const unlocatedAssets = enrichedAssets.filter(asset => asset.status !== 'retired' && !asset.location?.trim());
       const activeNonRetired = enrichedAssets.filter(asset => asset.status !== 'retired');
+      const activeComputerAssets = activeNonRetired.filter(asset => isComputerAsset(asset.asset_type));
       const staleLimit = Date.now() - 180 * 86400000;
-      const staleInventory = activeNonRetired.filter(asset => !asset.last_inventory_at || new Date(asset.last_inventory_at).getTime() < staleLimit).length;
-      const missingTechnical = activeNonRetired.filter(asset =>
+      const staleInventory = activeComputerAssets.filter(asset => !asset.last_inventory_at || new Date(asset.last_inventory_at).getTime() < staleLimit).length;
+      const missingTechnical = activeComputerAssets.filter(asset =>
         !asset.operating_system?.trim()
         && !asset.ip_address?.trim()
         && !asset.mac_address?.trim()
@@ -292,7 +342,7 @@ export function Dashboard() {
         locations[location].total += 1;
         if (asset.status === 'repair') locations[location].repair += 1;
         else if (asset.employee_name) locations[location].occupied += 1;
-        else if (asset.status === 'active') locations[location].available += 1;
+        else if (asset.status === 'active' || asset.status === 'storage') locations[location].available += 1;
       }
 
       const licenseRows = ((licenses ?? []) as License[]).map(license => {
@@ -317,7 +367,11 @@ export function Dashboard() {
 
       setData({
         totalAssets: enrichedAssets.length,
+        computerAssets,
+        peripheralAssets,
         availableAssets,
+        availableComputers,
+        availablePeripherals,
         occupiedAssets,
         repairAssets,
         retiredAssets: enrichedAssets.filter(asset => asset.status === 'retired').length,
@@ -367,12 +421,12 @@ export function Dashboard() {
   return (
     <div className="p-6 space-y-5">
       <div className="grid grid-cols-2 xl:grid-cols-6 gap-4">
-        <StatCard label="Total equipos" value={data.totalAssets} icon={Monitor} tone="slate" subtitle={`${activeAssets} en parque activo`} />
-        <StatCard label="Disponibles" value={data.availableAssets.length} icon={CheckCircle} tone="emerald" subtitle="activos sin asignar" />
+        <StatCard label="Total activos" value={data.totalAssets} icon={Package} tone="slate" subtitle={`${activeAssets} en parque activo`} />
+        <StatCard label="Equipos IT" value={data.computerAssets.length} icon={Monitor} tone="blue" subtitle="portatiles, torres y servidores" />
+        <StatCard label="Perifericos" value={data.peripheralAssets.length} icon={Keyboard} tone="slate" subtitle="monitores, teclados, ratones..." />
+        <StatCard label="Disponibles" value={data.availableAssets.length} icon={CheckCircle} tone="emerald" subtitle={`${data.availableComputers.length} equipos / ${data.availablePeripherals.length} perifericos`} />
         <StatCard label="Ocupados" value={data.occupiedAssets.length} icon={User} tone="blue" subtitle={`${occupiedPercent}% del inventario`} />
         <StatCard label="En reparacion" value={data.repairAssets.length} icon={Wrench} tone="amber" subtitle="requieren seguimiento" alert={data.repairAssets.length > 0} />
-        <StatCard label="Sin ubicacion" value={data.unlocatedAssets.length} icon={MapPin} tone="red" subtitle="activos por localizar" alert={data.unlocatedAssets.length > 0} />
-        <StatCard label="Retirados" value={data.retiredAssets} icon={Package} tone="slate" subtitle="fuera de servicio" />
       </div>
 
       <section className="bg-white border border-gray-100 rounded-xl p-5">
@@ -391,11 +445,11 @@ export function Dashboard() {
             <p className="text-2xl font-black text-red-700">{data.dataQuality.missingLocation}</p>
           </div>
           <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
-            <p className="text-xs font-medium text-amber-600">Ficha tecnica vacia</p>
+            <p className="text-xs font-medium text-amber-600">Equipos sin ficha tecnica</p>
             <p className="text-2xl font-black text-amber-700">{data.dataQuality.missingTechnical}</p>
           </div>
           <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
-            <p className="text-xs font-medium text-blue-600">Sin revisar 180d</p>
+            <p className="text-xs font-medium text-blue-600">Equipos sin revisar 180d</p>
             <p className="text-2xl font-black text-blue-700">{data.dataQuality.staleInventory}</p>
           </div>
           <div className="rounded-lg bg-slate-50 border border-slate-100 p-3">
@@ -427,7 +481,7 @@ export function Dashboard() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
-                      <h3 className="font-semibold text-gray-900 truncate">{item.type}</h3>
+                    <h3 className="font-semibold text-gray-900 truncate">{assetTypeLabel(item.type)}</h3>
                       <span className="text-xs font-medium text-gray-400">{pct}%</span>
                     </div>
                     <p className="text-3xl font-black text-gray-900 leading-none mt-1">{item.total}</p>
@@ -447,17 +501,30 @@ export function Dashboard() {
       </section>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <section className="xl:col-span-2 bg-white border border-gray-100 rounded-xl p-5">
+        <section className="bg-white border border-gray-100 rounded-xl p-5">
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
               <h2 className="font-semibold text-gray-900">Equipos disponibles</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Activos, sin empleado asignado y listos para uso</p>
+              <p className="text-xs text-gray-400 mt-0.5">Portatiles, torres y servidores listos para entregar</p>
             </div>
             <button onClick={() => setCurrentPage('assets')} className="text-sm font-medium text-blue-600 hover:text-blue-800">
               Ver activos
             </button>
           </div>
-          <AssetList assets={data.availableAssets} emptyText="No hay equipos disponibles ahora mismo" />
+          <AssetList assets={data.availableComputers} emptyText="No hay equipos disponibles ahora mismo" />
+        </section>
+
+        <section className="bg-white border border-gray-100 rounded-xl p-5">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="font-semibold text-gray-900">Perifericos disponibles</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Monitores, teclados, ratones, impresoras y accesorios sin asignar</p>
+            </div>
+            <button onClick={() => setCurrentPage('assets')} className="text-sm font-medium text-blue-600 hover:text-blue-800">
+              Ver activos
+            </button>
+          </div>
+          <AssetList assets={data.availablePeripherals} emptyText="No hay perifericos disponibles ahora mismo" />
         </section>
 
         <section className="bg-white border border-gray-100 rounded-xl p-5">
@@ -599,7 +666,7 @@ export function Dashboard() {
                   <Monitor size={14} className="text-blue-500" />
                   <span className="font-mono text-xs font-bold text-gray-800 truncate">{asset.serial_number}</span>
                 </div>
-                <p className="text-xs text-gray-500 truncate">{asset.asset_type} - {asset.brand} {asset.model}</p>
+                <p className="text-xs text-gray-500 truncate">{assetTypeLabel(asset.asset_type)} - {asset.brand} {asset.model}</p>
                 <div className="flex flex-wrap gap-1 mt-3">
                   {asset.daysWarranty !== null && asset.daysWarranty <= 90 && (
                     <Badge variant={asset.daysWarranty < 0 ? 'danger' : 'warning'}>

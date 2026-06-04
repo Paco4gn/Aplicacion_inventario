@@ -39,7 +39,7 @@ export function Employees() {
     const [{ data: e }, { data: asgn }, { data: a }, licenseResult] = await Promise.all([
       supabase.from('employees').select('*').order('name'),
       supabase.from('asset_assignments').select('*, asset:assets(id,serial_number,brand,model,asset_type)').is('returned_at', null),
-      supabase.from('assets').select('id,serial_number,brand,model,asset_type,status').eq('status', 'active').order('serial_number'),
+      supabase.from('assets').select('id,serial_number,brand,model,asset_type,status').in('status', ['active', 'storage']).order('serial_number'),
       supabase.from('license_assignments').select('*, license:licenses(id,license_key,software:software(name))').is('returned_at', null),
     ]);
     setEmployees(e ?? []);

@@ -26,6 +26,7 @@ const PRIORITIES = [
 const STATUSES = [
   { value: 'open', label: 'Abierta' },
   { value: 'in_progress', label: 'En Progreso' },
+  { value: 'resolved', label: 'Resuelta' },
   { value: 'closed', label: 'Cerrada' },
 ];
 
@@ -47,6 +48,7 @@ function priorityBadge(p: string) {
 function statusBadge(s: string) {
   if (s === 'open') return <Badge variant="danger">Abierta</Badge>;
   if (s === 'in_progress') return <Badge variant="warning">En Progreso</Badge>;
+  if (s === 'resolved') return <Badge variant="info">Resuelta</Badge>;
   return <Badge variant="success">Cerrada</Badge>;
 }
 
@@ -571,7 +573,7 @@ export function Incidents() {
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-gray-400">Todos los activos reciben aviso al crear una incidencia. Despues puedes asignar aqui quien la esta trabajando.</p>
+          <p className="text-xs text-gray-400">Si una incidencia no tiene responsable se avisara a todos los correos activos. Si la asignas, se avisara al responsable seleccionado.</p>
         </div>
       </Modal>
 

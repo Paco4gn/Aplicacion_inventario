@@ -1,6 +1,6 @@
-export type AssetStatus = 'active' | 'repair' | 'retired';
-export type AssetType = 'Laptop' | 'Torre' | 'Server' | 'Printer' | 'Monitor' | 'Peripheral' | 'Other';
-export type IncidentStatus = 'open' | 'in_progress' | 'closed';
+export type AssetStatus = 'active' | 'storage' | 'repair' | 'retired';
+export type AssetType = 'Laptop' | 'Torre' | 'Server' | 'Printer' | 'Monitor' | 'Keyboard' | 'Mouse' | 'Dock' | 'Webcam' | 'Headset' | 'Projector' | 'Scanner' | 'UPS' | 'Peripheral' | 'Other';
+export type IncidentStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 export type IncidentPriority = 'low' | 'medium' | 'high' | 'critical';
 export type MovementType = 'in' | 'out';
 export type LicenseType = 'commercial' | 'oem' | 'volume' | 'freeware';

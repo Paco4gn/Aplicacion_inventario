@@ -17,6 +17,7 @@ function json(data: unknown, status = 200) {
 function statusLabel(status: string) {
   if (status === "open") return "Abierta";
   if (status === "in_progress") return "En progreso";
+  if (status === "resolved") return "Resuelta";
   if (status === "closed") return "Cerrada";
   return status;
 }
@@ -295,9 +296,10 @@ Deno.serve(async (req: Request) => {
     ]);
     employee = employeeResult.data;
 
-    const to = Array.from(new Set((recipients ?? []).map((r) => r.email).filter(Boolean)));
     const assignedEmail = assignedTo?.email;
-    if (assignedEmail) to.push(assignedEmail);
+    const to = assignedEmail
+      ? [assignedEmail]
+      : (recipients ?? []).map((r) => r.email).filter(Boolean);
     const uniqueTo = Array.from(new Set(to));
 
     if (uniqueTo.length === 0) {
