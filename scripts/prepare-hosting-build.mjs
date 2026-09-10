@@ -8,7 +8,7 @@ const manifestTarget = join(dist, '.openai', 'hosting.json');
 
 await mkdir(dirname(manifestTarget), { recursive: true });
 await cp(manifestSource, manifestTarget);
-await cp(join(root, 'drizzle'), join(dist, 'drizzle'), { recursive: true });
+await cp(join(root, 'drizzle'), join(dist, '.openai', 'drizzle'), { recursive: true });
 
 let workerRoot = dist;
 try {
