@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, BookOpen, Key, Download, AlertTriangle, CheckCircle, Copy, Monitor, User } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { logAction } from '../lib/audit';
 import { exportCSV } from '../lib/csv';
 import { useToast } from '../contexts/ToastContext';
@@ -65,11 +65,11 @@ export function Software() {
 
   async function load() {
     const [{ data: sw }, { data: lic }, { data: emps }, { data: assetRows }, assignmentResult] = await Promise.all([
-      supabase.from('software').select('*').order('name'),
-      supabase.from('licenses').select('*, software:software(name,vendor)').order('expiry_date'),
-      supabase.from('employees').select('*').eq('active', true).order('name'),
-      supabase.from('assets').select('*').neq('status', 'retired').order('serial_number'),
-      supabase.from('license_assignments').select('*, employee:employees(id,name,email,department,position,active,created_at,updated_at), asset:assets(*)').is('returned_at', null),
+      api.from('software').select('*').order('name'),
+      api.from('licenses').select('*, software:software(name,vendor)').order('expiry_date'),
+      api.from('employees').select('*').eq('active', true).order('name'),
+      api.from('assets').select('*').neq('status', 'retired').order('serial_number'),
+      api.from('license_assignments').select('*, employee:employees(id,name,email,department,position,active,created_at,updated_at), asset:assets(*)').is('returned_at', null),
     ]);
     setSoftware(sw ?? []);
     setLicenses(lic ?? []);
@@ -135,11 +135,11 @@ export function Software() {
   async function saveSw() {
     if (!editingSw.name?.trim()) { showToast('Nombre es obligatorio', 'error'); return; }
     if (editingSw.id) {
-      await supabase.from('software').update({ ...editingSw, updated_at: new Date().toISOString() }).eq('id', editingSw.id);
+      await api.from('software').update({ ...editingSw, updated_at: new Date().toISOString() }).eq('id', editingSw.id);
       await logAction('updated', 'software', editingSw.id, editingSw.name ?? '');
       showToast('Software actualizado');
     } else {
-      const { data } = await supabase.from('software').insert([editingSw]).select().maybeSingle();
+      const { data } = await api.from('software').insert([editingSw]).select().maybeSingle();
       if (data) await logAction('created', 'software', data.id, data.name);
       showToast('Software añadido');
     }
@@ -151,7 +151,7 @@ export function Software() {
   async function deleteSw() {
     if (!selectedSw) return;
     const affectedLicenses = licenses.filter(l => l.software_id === selectedSw.id).length;
-    await supabase.from('software').delete().eq('id', selectedSw.id);
+    await api.from('software').delete().eq('id', selectedSw.id);
     await logAction('deleted', 'software', selectedSw.id, selectedSw.name);
     showToast(`Software eliminado (${affectedLicenses} licencia${affectedLicenses !== 1 ? 's' : ''} borrada${affectedLicenses !== 1 ? 's' : ''})`, 'warning');
     load();
@@ -175,7 +175,7 @@ export function Software() {
       notes: editingLic.notes ?? '',
     };
     if (editingLic.id) {
-      const { error } = await supabase.from('licenses').update({ ...licensePayload, updated_at: new Date().toISOString() }).eq('id', editingLic.id);
+      const { error } = await api.from('licenses').update({ ...licensePayload, updated_at: new Date().toISOString() }).eq('id', editingLic.id);
       if (error) { showToast(`No se pudo guardar: ${error.message}`, 'error'); return; }
       if (totalSeats === 1) {
         const assignmentError = await syncLicenseAssignment(editingLic.id, assignEmployeeId, assignAssetId);
@@ -189,7 +189,7 @@ export function Software() {
         ...newLicensePayload,
         license_key: count > 1 && newLicensePayload.license_key ? `${newLicensePayload.license_key}-${index + 1}` : newLicensePayload.license_key,
       }));
-      const { data, error } = await supabase.from('licenses').insert(rows).select();
+      const { data, error } = await api.from('licenses').insert(rows).select();
       if (error) { showToast(`No se pudo crear: ${error.message}`, 'error'); return; }
       if (data?.[0]) {
         const sw = software.find(s => s.id === editingLic.software_id);
@@ -213,7 +213,7 @@ export function Software() {
     if (sameAssignment) return '';
 
     if (current) {
-      const { error } = await supabase
+      const { error } = await api
         .from('license_assignments')
         .update({ returned_at: new Date().toISOString() })
         .eq('id', current.id);
@@ -221,12 +221,12 @@ export function Software() {
     }
 
     if (!wantsAssignment) {
-      await supabase.from('licenses').update({ seats_used: 0, updated_at: new Date().toISOString() }).eq('id', licenseId);
+      await api.from('licenses').update({ seats_used: 0, updated_at: new Date().toISOString() }).eq('id', licenseId);
       await logAction('unassigned', 'license', licenseId, 'Licencia liberada');
       return '';
     }
 
-    const { error } = await supabase.from('license_assignments').insert([{
+    const { error } = await api.from('license_assignments').insert([{
       license_id: licenseId,
       employee_id: employeeId === 'none' ? null : employeeId,
       asset_id: assetId === 'none' ? null : assetId,
@@ -234,7 +234,7 @@ export function Software() {
     }]);
     if (error) return `No se pudo guardar la asignacion. Aplica la migracion de license_assignments. ${error.message}`;
 
-    await supabase.from('licenses').update({ seats_used: 1, updated_at: new Date().toISOString() }).eq('id', licenseId);
+    await api.from('licenses').update({ seats_used: 1, updated_at: new Date().toISOString() }).eq('id', licenseId);
     await logAction('assigned', 'license', licenseId, 'Licencia asignada', {
       employee: employees.find(e => e.id === employeeId)?.name,
       asset: assets.find(a => a.id === assetId)?.serial_number,
@@ -244,7 +244,7 @@ export function Software() {
 
   async function deleteLic() {
     if (!selectedLic) return;
-    await supabase.from('licenses').delete().eq('id', selectedLic.id);
+    await api.from('licenses').delete().eq('id', selectedLic.id);
     await logAction('deleted', 'license', selectedLic.id, (selectedLic.software as { name?: string } | null)?.name ?? '');
     showToast('Licencia eliminada', 'warning');
     load();
@@ -266,9 +266,9 @@ export function Software() {
       vendor_contact: selectedLic.vendor_contact,
       notes: selectedLic.notes,
     }));
-    const { error: insertError } = await supabase.from('licenses').insert(rows);
+    const { error: insertError } = await api.from('licenses').insert(rows);
     if (insertError) { showToast('Error al dividir licencias', 'error'); return; }
-    const { error: deleteError } = await supabase.from('licenses').delete().eq('id', selectedLic.id);
+    const { error: deleteError } = await api.from('licenses').delete().eq('id', selectedLic.id);
     if (deleteError) { showToast('Licencias creadas, pero no se pudo eliminar el bloque original', 'warning'); return; }
     await logAction('updated', 'license', selectedLic.id, `Dividida en ${total} licencias`);
     showToast(`Licencia dividida en ${total} licencias`);

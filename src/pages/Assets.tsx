@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { Plus, Pencil, Trash2, Monitor, Eye, Download, Upload, QrCode, History, CheckSquare, Square, X, ShieldAlert, ShieldCheck, ShieldOff, Printer, Laptop, Server, Keyboard, Mouse, Package } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { logAction } from '../lib/audit';
 import { exportCSV, parseCSV } from '../lib/csv';
 import { useToast } from '../contexts/ToastContext';
@@ -138,7 +138,7 @@ function buildLabelHtml(serial: string, qrSrc: string): string {
   var img=document.querySelector('img');
   if(img.complete){window.print();}
   else{img.onload=function(){window.print();};img.onerror=function(){window.print();};}
-<\/script>
+</script>
 </body></html>`;
 }
 
@@ -202,9 +202,9 @@ export function Assets() {
 
   async function load() {
     const [{ data: a }, { data: e }, { data: asgn }] = await Promise.all([
-      supabase.from('assets').select('*').order('serial_number'),
-      supabase.from('employees').select('*').eq('active', true).order('name'),
-      supabase.from('asset_assignments').select('*, employee:employees(id,name)').is('returned_at', null),
+      api.from('assets').select('*').order('serial_number'),
+      api.from('employees').select('*').eq('active', true).order('name'),
+      api.from('asset_assignments').select('*, employee:employees(id,name)').is('returned_at', null),
     ]);
     setAssets(a ?? []);
     setEmployees(e ?? []);
@@ -265,7 +265,12 @@ export function Assets() {
   const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
 
   function toggleOne(id: string) {
-    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
   function togglePage() {
     if (allPageSelected) {
@@ -304,14 +309,14 @@ export function Assets() {
     };
 
     if (editing.id) {
-      const { error } = await supabase.from('assets')
+      const { error } = await api.from('assets')
         .update({ ...payload, updated_at: new Date().toISOString() })
         .eq('id', editing.id);
       if (error) { showToast('Error al actualizar', 'error'); return; }
       await logAction('updated', 'asset', editing.id, sn);
       showToast('Activo actualizado');
     } else {
-      const { data, error } = await supabase.from('assets').insert([payload]).select().maybeSingle();
+      const { data, error } = await api.from('assets').insert([payload]).select().maybeSingle();
       if (error) {
         showToast(error.message.includes('unique') ? 'Nº de serie ya existe' : 'Error al crear', 'error');
         return;
@@ -325,7 +330,7 @@ export function Assets() {
 
   async function deleteAsset() {
     if (!selected) return;
-    await supabase.from('assets').delete().eq('id', selected.id);
+    await api.from('assets').delete().eq('id', selected.id);
     await logAction('deleted', 'asset', selected.id, selected.serial_number);
     showToast('Activo eliminado', 'warning');
     load();
@@ -333,7 +338,7 @@ export function Assets() {
 
   async function bulkDelete() {
     const ids = Array.from(selectedIds);
-    await supabase.from('assets').delete().in('id', ids);
+    await api.from('assets').delete().in('id', ids);
     showToast(`${ids.length} activos eliminados`, 'warning');
     clearSelection();
     load();
@@ -341,7 +346,7 @@ export function Assets() {
 
   async function bulkUpdateStatus() {
     const ids = Array.from(selectedIds);
-    await supabase.from('assets').update({ status: bulkStatus, updated_at: new Date().toISOString() }).in('id', ids);
+    await api.from('assets').update({ status: bulkStatus, updated_at: new Date().toISOString() }).in('id', ids);
     showToast(`${ids.length} activos actualizados`);
     clearSelection();
     load();
@@ -353,12 +358,12 @@ export function Assets() {
       ? [selected.id, ...linkedPeripherals(selected.id).map(asset => asset.id)]
       : [selected.id];
 
-    await supabase.from('asset_assignments')
+    await api.from('asset_assignments')
       .update({ returned_at: new Date().toISOString() })
       .in('asset_id', assetIds)
       .is('returned_at', null);
     if (assignEmployeeId && assignEmployeeId !== 'none') {
-      await supabase.from('asset_assignments').insert(assetIds.map(assetId => ({
+      await api.from('asset_assignments').insert(assetIds.map(assetId => ({
         asset_id: assetId, employee_id: assignEmployeeId, notes: assetId === selected.id ? 'Asignado manualmente' : `Asignado con equipo ${selected.serial_number}`,
       })));
       const emp = employees.find(e => e.id === assignEmployeeId);
@@ -374,18 +379,18 @@ export function Assets() {
   async function openHistory(asset: Asset) {
     setSelected(asset);
     const [{ data: asgns }, { data: incs }] = await Promise.all([
-      supabase.from('asset_assignments').select('*, employee:employees(name)').eq('asset_id', asset.id).order('assigned_at', { ascending: false }),
-      supabase.from('incidents').select('*').eq('asset_id', asset.id).order('opened_at', { ascending: false }),
+      api.from('asset_assignments').select('*, employee:employees(name)').eq('asset_id', asset.id).order('assigned_at', { ascending: false }),
+      api.from('incidents').select('*').eq('asset_id', asset.id).order('opened_at', { ascending: false }),
     ]);
     const entries: HistoryEntry[] = [
-      ...(asgns ?? []).map(a => ({
+      ...(asgns ?? []).map((a: AssetAssignment) => ({
         type: 'assignment' as const,
         date: a.assigned_at,
         label: (a.employee as { name?: string } | null)?.name ?? 'Sin empleado',
         sublabel: a.returned_at ? `Devuelto: ${new Date(a.returned_at).toLocaleDateString('es-ES')}` : 'En uso actualmente',
         badge: a.returned_at ? <Badge variant="neutral">Devuelto</Badge> : <Badge variant="success">En uso</Badge>,
       })),
-      ...(incs ?? []).map(i => ({
+      ...(incs ?? []).map((i: { opened_at: string; title: string; resolution: string; status: string }) => ({
         type: 'incident' as const,
         date: i.opened_at,
         label: i.title,
@@ -446,7 +451,7 @@ ${warrantyWarning}${eolWarning}
   var img = document.querySelector('img');
   if (img.complete) { window.print(); }
   else { img.onload = function(){ window.print(); }; img.onerror = function(){ window.print(); }; }
-<\/script>
+</script>
 </body></html>`;
     printViaIframe(html);
   }
@@ -563,7 +568,7 @@ ${warrantyWarning}${eolWarning}
       notes: r['Notas'] || r['notes'] || '',
     })).filter(r => r.serial_number);
     if (!toInsert.length) { showToast('No se encontraron filas válidas (columna "Nº Serie" requerida)', 'error'); return; }
-    const { error } = await supabase.from('assets').upsert(toInsert, { onConflict: 'serial_number' });
+    const { error } = await api.from('assets').upsert(toInsert, { onConflict: 'serial_number' });
     if (error) { showToast('Error en importación: ' + error.message, 'error'); return; }
     showToast(`${toInsert.length} activos importados/actualizados`);
     load();

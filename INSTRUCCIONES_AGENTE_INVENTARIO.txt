@@ -3,164 +3,46 @@ INSTRUCCIONES PARA INSTALAR EL AGENTE DE INVENTARIO
 
 OBJETIVO
 --------
-Instalar en cada ordenador un agente automatico que actualiza sus datos tecnicos en la aplicacion de inventario.
+Actualizar automáticamente en IT Inventario los datos técnicos de cada equipo Windows.
 
-IMPORTANTE ANTES DE USARLO
---------------------------
-En Supabase deben estar creadas las columnas tecnicas.
+NECESITAS
+---------
+- La URL publicada de IT Inventario.
+- El token privado INVENTORY_AGENT_TOKEN configurado en el alojamiento.
+- El archivo scripts\collect-windows-inventory.ps1.
 
-Entra en Supabase > SQL Editor y ejecuta el archivo:
-
-SQL_ACTUALIZAR_SUPABASE_INVENTARIO.sql
-
-Si no haces este paso, el agente no se rompe, pero solo actualizara los campos basicos que ya existan.
-
-El agente actualiza:
-- Nombre del equipo
-- Marca
-- Modelo
-- Sistema operativo
-- IP
-- MAC
-- Procesador
-- RAM
-- Disco
-- Fecha de ultimo inventario
-
-No cambia:
-- Ubicacion ya puesta manualmente
-- Estado del activo
-- Asignacion a empleado
-- Notas manuales
-- Tipo del activo si ya existe
-
-
-ARCHIVO QUE HAY QUE COPIAR AL ORDENADOR
----------------------------------------
-Copia este archivo al ordenador donde quieres instalar el agente:
-
-collect-windows-inventory.ps1
-
-Esta dentro del proyecto en:
-
-scripts\collect-windows-inventory.ps1
-
-No hace falta copiar todo el proyecto.
-
-
-PASOS EN CADA ORDENADOR
------------------------
+INSTALACIÓN
+-----------
 1. Copia collect-windows-inventory.ps1 al ordenador.
-
 2. Abre PowerShell como administrador.
-
-3. Ve a la carpeta donde hayas copiado el archivo.
-
-   Si lo has dejado en Descargas:
-
-   cd $env:USERPROFILE\Downloads
-
-4. Ejecuta el comando cambiando solo el numero de serie interno.
-
-   Ejemplo para PC001:
-
-   powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
-     -Install `
-     -SerialNumber "PC001" `
-     -IntervalDays 15 `
-     -RunAtStartup
-
-   Ejemplo para PC002:
-
-   powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
-     -Install `
-     -SerialNumber "PC002" `
-     -IntervalDays 15 `
-     -RunAtStartup
-
-El tipo se detecta automaticamente como Laptop o Torre.
-Si quieres forzarlo, añade una de estas lineas:
-
-  -AssetType "Laptop"
-
-o:
-
-  -AssetType "Torre"
-
-
-QUE NUMERO DE SERIE PONER
--------------------------
-Debes poner el codigo que ya existe en la base de datos/app:
-
-PC001
-PC002
-PC003
-PC004
-PC005
-...
-
-Tiene que coincidir con el campo "Nº Serie" de la aplicacion.
-
-
-QUE HACE EL INSTALADOR
-----------------------
-El instalador crea:
-
-C:\ProgramData\ITInventario
-
-Dentro deja:
-
-C:\ProgramData\ITInventario\collect-windows-inventory.ps1
-C:\ProgramData\ITInventario\agent.json
-
-Tambien crea una tarea programada llamada:
-
-IT Inventario - Inventario automatico
-
-
-CUANDO SE EJECUTA
------------------
-Con el comando recomendado:
-
-- Se ejecuta al arrancar Windows
-- Se ejecuta tambien cada 15 dias
-
-
-COMO FUNCIONA
--------------
-El agente busca el activo por el numero de serie interno.
-
-Si existe PC001 en la base de datos:
-- Actualiza los datos tecnicos de PC001.
-
-Si no existe:
-- Crea un activo nuevo con ese numero de serie.
-
-Si no indicas numero de serie:
-- Consulta la base de datos.
-- Busca el ultimo codigo tipo PC001, PC002, PC003...
-- Crea el siguiente codigo libre automaticamente.
-- Ejemplo: si el ultimo es PC035, crea PC036.
-
-
-COMANDO BASE PARA COPIAR
-------------------------
-Primero ve a Descargas si has dejado alli el archivo:
-
-cd $env:USERPROFILE\Downloads
-
-Despues ejecuta esto. Cambia solo PC001 por el codigo que corresponda:
+3. Ejecuta, sustituyendo la URL y el token:
 
 powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
   -Install `
+  -ApiUrl "https://URL-DEL-INVENTARIO" `
+  -AgentToken "TOKEN-DEL-AGENTE" `
   -SerialNumber "PC001" `
-  -IntervalDays 15 `
-  -RunAtStartup
-
-Para un equipo nuevo, puedes omitir el numero de serie y se asignara el siguiente PC automaticamente:
-
-powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
-  -Install `
   -Location "Oficina principal" `
   -IntervalDays 15 `
   -RunAtStartup
+
+El número de serie puede omitirse para usar el de la BIOS o el nombre del equipo cuando la BIOS no ofrece uno válido.
+
+DATOS QUE ACTUALIZA
+-------------------
+- Nombre, marca y modelo.
+- Sistema operativo, IP y MAC.
+- Procesador, RAM y almacenamiento.
+- Fecha del último inventario.
+
+En equipos ya existentes no sobrescribe ubicación, asignación, estado, notas manuales ni tipo de activo.
+
+SEGURIDAD
+---------
+El token se guarda cifrado mediante la protección de credenciales de Windows en:
+
+C:\ProgramData\ITInventario\agent.json
+
+La tarea programada se llama:
+
+IT Inventario - Inventario automatico

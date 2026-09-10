@@ -1,130 +1,60 @@
-# Aplicacion_inventario
+# IT Inventario
 
-[![Open in Bolt](https://bolt.new/static/open-in-bolt.svg)](https://bolt.new/~/sb1-8rtrxr4g)
+Aplicación de gestión de activos, empleados, incidencias, licencias, componentes y auditoría para FEVAL.
+
+La aplicación usa React y TypeScript en la interfaz, Cloudflare Workers para la API y D1 para los datos. La interfaz, la API y la base se despliegan juntas, sin depender de un proyecto Supabase que pueda pausarse.
 
 ## Puesta en marcha local
 
-1. Instala dependencias:
+Requisitos: Node.js 22 o superior.
 
 ```bash
 npm install
-```
-
-2. Crea un archivo `.env` copiando `.env.example` y rellena las credenciales de Supabase:
-
-```bash
-VITE_SUPABASE_URL=https://tu-proyecto.supabase.co
-VITE_SUPABASE_ANON_KEY=tu_clave_anon_publica
-```
-
-3. Arranca la app:
-
-```bash
+npm run db:generate
+npx wrangler d1 migrations apply it-inventario-local --local
 npm run dev
 ```
 
-4. Ejecuta las migraciones de la carpeta `supabase/migrations` en tu proyecto de Supabase antes de iniciar sesion.
+En local se crea una sesión de desarrollo. En el sitio publicado, el acceso queda protegido por la autenticación del alojamiento.
 
-## Inventario automatico de equipos Windows
+Para probar el panel técnico de los códigos QR, copia `.dev.vars.example` como `.dev.vars` y configura `ASSET_PUBLIC_TECH_PIN`. Las claves de correo y del agente Windows también se guardan en ese archivo local; nunca se incluyen en el código del navegador.
 
-El navegador no puede leer directamente CPU, RAM, disco, IP o MAC por seguridad. Para capturar esos datos usa el script incluido:
+## Comprobaciones
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\collect-windows-inventory.ps1 -OutputPath .\inventario-equipo.csv -Location "Oficina principal" -AssetType "Laptop"
+```bash
+npm run typecheck
+npm run lint
+npm run build
 ```
 
-Luego entra en **Activos** y pulsa **Importar** para cargar el CSV. Si el numero de serie ya existe, la app actualiza la ficha tecnica del equipo.
+La definición de las tablas está en `db/schema.ts` y las migraciones generadas están en `drizzle/`.
 
-### Sincronizacion automatica con Supabase
+Desde **Auditoría** se puede descargar una copia JSON completa o restaurar una copia anterior. El archivo incluye todos los módulos y conserva identificadores y relaciones.
 
-Para que el equipo se actualice solo, instala una tarea programada en cada PC. Usa un usuario de Supabase con permisos de admin en la app:
+## Inventario automático de equipos Windows
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\collect-windows-inventory.ps1 `
-  -InstallScheduledTask `
-  -SyncToSupabase `
-  -IntervalMinutes 60 `
-  -Location "Oficina principal" `
-  -AssetType "Laptop" `
-  -SupabaseUrl "https://dwudqkzkwsqwxshumlza.supabase.co" `
-  -SupabaseAnonKey "TU_ANON_KEY" `
-  -SupabaseEmail "informatica@feval.com" `
-  -SupabasePassword "CONTRASEÑA_DEL_USUARIO"
-```
-
-La tarea queda instalada como **IT Inventario - Inventario automatico** y ejecuta la sincronizacion cada hora. La configuracion se guarda localmente en `C:\ProgramData\ITInventario\agent.json`.
-
-### Flujo recomendado por numero de serie
-
-El agente trabaja por `serial_number`:
-
-- Si el numero de serie ya existe en **Activos**, actualiza solo los datos tecnicos: Windows, IP, MAC, CPU, RAM, disco, nombre del equipo, marca/modelo y ultimo inventario.
-- Si el numero de serie no existe, crea el activo automaticamente.
-- Si no indicas numero de serie, el agente consulta la base de datos y crea el siguiente codigo libre siguiendo la numeracion `PC001`, `PC002`, `PC003`...
-- No pisa ubicacion, asignacion, estado, notas manuales ni tipo del activo en equipos ya existentes.
-
-Si la BIOS devuelve un numero de serie incorrecto o quieres forzarlo manualmente:
+El navegador no puede leer CPU, RAM, disco, IP o MAC. El script `scripts/collect-windows-inventory.ps1` genera un CSV que se puede importar desde **Activos**:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\collect-windows-inventory.ps1 `
-  -InstallScheduledTask `
-  -SyncToSupabase `
-  -SerialNumber "NUMERO-DE-SERIE-DEL-EQUIPO" `
-  -IntervalMinutes 60 `
-  -SupabaseUrl "https://dwudqkzkwsqwxshumlza.supabase.co" `
-  -SupabaseAnonKey "TU_ANON_KEY" `
-  -SupabaseEmail "informatica@feval.com" `
-  -SupabasePassword "CONTRASEÑA_DEL_USUARIO"
+  -OutputPath .\inventario-equipo.csv `
+  -Location "Oficina principal"
 ```
 
-### Instalador autonomo para otros equipos
-
-Para instalar el agente en un PC que no tiene la carpeta del proyecto, copia solo este archivo al equipo:
-
-```text
-scripts\collect-windows-inventory.ps1
-```
-
-Despues ejecuta PowerShell como administrador en ese equipo:
+Para sincronizar el equipo automáticamente, configura en el sitio el secreto `INVENTORY_AGENT_TOKEN` e instala la tarea con la URL publicada y ese mismo token:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
+powershell -ExecutionPolicy Bypass -File .\scripts\collect-windows-inventory.ps1 `
   -Install `
-  -SerialNumber "NUMERO-DE-SERIE-DEL-EQUIPO" `
+  -ApiUrl "https://URL-DEL-INVENTARIO" `
+  -AgentToken "TOKEN-DEL-AGENTE" `
   -Location "Oficina principal" `
   -IntervalDays 15 `
   -RunAtStartup
 ```
 
-El instalador crea:
+El token se cifra con la protección de credenciales de Windows antes de guardarse en `C:\ProgramData\ITInventario\agent.json`. La tarea actualiza los datos técnicos si el número de serie ya existe y crea el activo si todavía no existe. No sobrescribe la ubicación, la asignación, el estado ni las notas manuales de los equipos existentes.
 
-```text
-C:\ProgramData\ITInventario\collect-windows-inventory.ps1
-C:\ProgramData\ITInventario\agent.json
-```
+## Avisos de incidencias
 
-Y deja una tarea programada llamada **IT Inventario - Inventario automatico**. Desde ese momento se actualiza solo.
-
-Por defecto el instalador autonomo esta pensado para ejecutarse cada 15 dias. Con `-RunAtStartup` tambien sincroniza cuando el equipo arranca.
-
-Para un equipo nuevo, puedes omitir `-SerialNumber` y el agente creara el siguiente numero disponible:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\collect-windows-inventory.ps1 `
-  -Install `
-  -Location "Oficina principal" `
-  -IntervalDays 15 `
-  -RunAtStartup
-```
-
-El tipo de activo se detecta automaticamente como `Laptop` o `Torre`. Si quieres forzarlo manualmente, puedes añadir:
-
-```powershell
--AssetType "Laptop"
-```
-
-o:
-
-```powershell
--AssetType "Torre"
-```
+Los avisos admiten Resend, SendGrid, Brevo, Google Apps Script y Microsoft Graph. Configura `MAIL_PROVIDER`, `INCIDENT_EMAIL_FROM` y las credenciales del proveedor como variables privadas del alojamiento. Los destinatarios se administran desde **Incidencias > Configurar avisos**.

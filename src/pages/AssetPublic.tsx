@@ -6,9 +6,6 @@ import {
   Settings,
 } from 'lucide-react';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
 interface PublicAsset {
   id: string;
   serial_number: string;
@@ -60,11 +57,10 @@ function apiFetch(serial: string, method: string, body?: object, techPin?: strin
   const params = new URLSearchParams({ serial });
   if (techPin) params.set('tech_pin', techPin);
   return fetch(
-    `${SUPABASE_URL}/functions/v1/asset-public?${params.toString()}`,
+    `/api/public/assets?${params.toString()}`,
     {
       method,
       headers: {
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
         'Content-Type': 'application/json',
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -171,7 +167,7 @@ function buildPrintHtml(asset: PublicAsset, qrSrc: string, statusLabel: string):
   var img = document.querySelector('img');
   if (img.complete) { window.print(); }
   else { img.onload = function(){ window.print(); }; img.onerror = function(){ window.print(); }; }
-<\/script>
+</script>
 </body>
 </html>`;
 }

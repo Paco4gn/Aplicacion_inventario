@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { api } from './api';
 
 export async function logAction(
   action: string,
@@ -7,8 +7,8 @@ export async function logAction(
   entityName: string,
   details: Record<string, unknown> = {}
 ) {
-  const { data: { user } } = await supabase.auth.getUser();
-  await supabase.from('audit_logs').insert({
+  const { data: { user } } = await api.auth.getUser();
+  await api.from('audit_logs').insert({
     action,
     entity_type: entityType,
     entity_id: entityId,

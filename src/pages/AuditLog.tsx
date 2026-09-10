@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
-import { ClipboardList, Download, CalendarRange } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { useEffect, useRef, useState } from 'react';
+import { ClipboardList, Download, CalendarRange, Upload } from 'lucide-react';
+import { api } from '../lib/api';
 import { exportCSV } from '../lib/csv';
+import { useToast } from '../contexts/ToastContext';
 import { SearchInput } from '../components/ui/SearchInput';
 import { Badge } from '../components/ui/Badge';
 import { Pagination } from '../components/ui/Pagination';
@@ -33,6 +34,8 @@ const ENTITY_LABELS: Record<string, string> = {
 };
 
 export function AuditLog() {
+  const { showToast } = useToast();
+  const importRef = useRef<HTMLInputElement>(null);
   const [logs, setLogs] = useState<AuditLogType[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -41,9 +44,10 @@ export function AuditLog() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
+  const [backupBusy, setBackupBusy] = useState(false);
 
   useEffect(() => {
-    supabase
+    api
       .from('audit_logs')
       .select('*')
       .order('created_at', { ascending: false })
@@ -80,6 +84,47 @@ export function AuditLog() {
       { key: 'entity_name', label: 'Nombre' },
       { key: 'performed_by', label: 'Usuario' },
     ]);
+  }
+
+  async function downloadBackup() {
+    setBackupBusy(true);
+    try {
+      const response = await fetch('/api/admin/backup');
+      if (!response.ok) throw new Error();
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `it-inventario-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast('Copia de seguridad descargada');
+    } catch {
+      showToast('No se pudo generar la copia de seguridad', 'error');
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function importBackup(file: File) {
+    setBackupBusy(true);
+    try {
+      const payload = JSON.parse(await file.text()) as { format?: string; tables?: Record<string, unknown> };
+      if (payload.format !== 'it-inventario-backup-v1' || !payload.tables) throw new Error('Formato no válido');
+      const response = await fetch('/api/admin/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error();
+      showToast('Copia restaurada correctamente');
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch {
+      showToast('El archivo no es una copia válida de IT Inventario', 'error');
+    } finally {
+      setBackupBusy(false);
+      if (importRef.current) importRef.current.value = '';
+    }
   }
 
   return (
@@ -135,6 +180,30 @@ export function AuditLog() {
           >
             <Download size={15} /> CSV
           </button>
+          <button
+            onClick={downloadBackup}
+            disabled={backupBusy}
+            className="flex items-center gap-2 text-blue-700 bg-blue-50 hover:bg-blue-100 text-sm font-medium px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
+          >
+            <Download size={15} /> Copia JSON
+          </button>
+          <button
+            onClick={() => importRef.current?.click()}
+            disabled={backupBusy}
+            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
+          >
+            <Upload size={15} /> Restaurar
+          </button>
+          <input
+            ref={importRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) importBackup(file);
+            }}
+          />
         </div>
       </div>
 

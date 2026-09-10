@@ -21,4 +21,6 @@ dist-ssr
 *.sln
 *.sw?
 .env
-supabase/.temp/
+.dev.vars
+.wrangler/
+.tmp-*

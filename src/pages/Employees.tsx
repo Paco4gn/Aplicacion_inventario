@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, Monitor, Download, History, UserCheck, Key } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { logAction } from '../lib/audit';
 import { exportCSV } from '../lib/csv';
 import { useToast } from '../contexts/ToastContext';
@@ -37,10 +37,10 @@ export function Employees() {
 
   async function load() {
     const [{ data: e }, { data: asgn }, { data: a }, licenseResult] = await Promise.all([
-      supabase.from('employees').select('*').order('name'),
-      supabase.from('asset_assignments').select('*, asset:assets(id,serial_number,brand,model,asset_type)').is('returned_at', null),
-      supabase.from('assets').select('id,serial_number,brand,model,asset_type,status').in('status', ['active', 'storage']).order('serial_number'),
-      supabase.from('license_assignments').select('*, license:licenses(id,license_key,software:software(name))').is('returned_at', null),
+      api.from('employees').select('*').order('name'),
+      api.from('asset_assignments').select('*, asset:assets(id,serial_number,brand,model,asset_type)').is('returned_at', null),
+      api.from('assets').select('id,serial_number,brand,model,asset_type,status').in('status', ['active', 'storage']).order('serial_number'),
+      api.from('license_assignments').select('*, license:licenses(id,license_key,software:software(name))').is('returned_at', null),
     ]);
     setEmployees(e ?? []);
     setAssignments(asgn ?? []);
@@ -81,12 +81,12 @@ export function Employees() {
   async function save() {
     if (!editing.name?.trim()) { showToast('Nombre es obligatorio', 'error'); return; }
     if (editing.id) {
-      const { error } = await supabase.from('employees').update({ ...editing, updated_at: new Date().toISOString() }).eq('id', editing.id);
+      const { error } = await api.from('employees').update({ ...editing, updated_at: new Date().toISOString() }).eq('id', editing.id);
       if (error) { showToast('Error al actualizar', 'error'); return; }
       await logAction('updated', 'employee', editing.id, editing.name ?? '');
       showToast('Empleado actualizado');
     } else {
-      const { data, error } = await supabase.from('employees').insert([editing]).select().maybeSingle();
+      const { data, error } = await api.from('employees').insert([editing]).select().maybeSingle();
       if (error) { showToast('Error al crear', 'error'); return; }
       if (data) await logAction('created', 'employee', data.id, data.name);
       showToast('Empleado creado');
@@ -98,7 +98,7 @@ export function Employees() {
 
   async function deactivateEmployee() {
     if (!selected) return;
-    await supabase.from('employees').update({ active: false, updated_at: new Date().toISOString() }).eq('id', selected.id);
+    await api.from('employees').update({ active: false, updated_at: new Date().toISOString() }).eq('id', selected.id);
     await logAction('deactivated', 'employee', selected.id, selected.name);
     showToast('Empleado desactivado', 'warning');
     load();
@@ -106,7 +106,7 @@ export function Employees() {
 
   async function openHistory(emp: Employee) {
     setSelected(emp);
-    const { data } = await supabase
+    const { data } = await api
       .from('asset_assignments')
       .select('*, asset:assets(serial_number,brand,model,asset_type)')
       .eq('employee_id', emp.id)
@@ -123,7 +123,7 @@ export function Employees() {
 
   async function assignAsset() {
     if (!selected || !assignAssetId) { showToast('Selecciona un equipo', 'error'); return; }
-    await supabase.from('asset_assignments').insert([{
+    await api.from('asset_assignments').insert([{
       asset_id: assignAssetId,
       employee_id: selected.id,
       notes: 'Asignado desde empleado',
@@ -136,7 +136,7 @@ export function Employees() {
   }
 
   async function returnAsset(asgn: AssetAssignment) {
-    await supabase.from('asset_assignments')
+    await api.from('asset_assignments')
       .update({ returned_at: new Date().toISOString() })
       .eq('id', asgn.id);
     const asset = asgn.asset as { serial_number?: string } | null;

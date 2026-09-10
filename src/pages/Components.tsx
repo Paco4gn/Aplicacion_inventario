@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, AlertCircle, Download } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { logAction } from '../lib/audit';
 import { exportCSV } from '../lib/csv';
 import { useToast } from '../contexts/ToastContext';
@@ -40,8 +40,8 @@ export function Components() {
 
   async function load() {
     const [{ data: c }, { data: m }] = await Promise.all([
-      supabase.from('components').select('*').order('name'),
-      supabase.from('component_movements')
+      api.from('components').select('*').order('name'),
+      api.from('component_movements')
         .select('*, component:components(name,component_type)')
         .order('moved_at', { ascending: false })
         .limit(200),
@@ -61,7 +61,7 @@ export function Components() {
 
   const filteredMovements = movements.filter(m => {
     const q = search.toLowerCase();
-    return !q || ((m.component as any)?.name ?? '').toLowerCase().includes(q);
+    return !q || (m.component?.name ?? '').toLowerCase().includes(q);
   });
 
   const paginatedComponents = filteredComponents.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -70,11 +70,11 @@ export function Components() {
   async function save() {
     if (!editing.name?.trim()) { showToast('Nombre es obligatorio', 'error'); return; }
     if (editing.id) {
-      await supabase.from('components').update({ ...editing, updated_at: new Date().toISOString() }).eq('id', editing.id);
+      await api.from('components').update({ ...editing, updated_at: new Date().toISOString() }).eq('id', editing.id);
       await logAction('updated', 'component', editing.id, editing.name ?? '');
       showToast('Componente actualizado');
     } else {
-      const { data } = await supabase.from('components').insert([editing]).select().maybeSingle();
+      const { data } = await api.from('components').insert([editing]).select().maybeSingle();
       if (data) await logAction('created', 'component', data.id, data.name);
       showToast('Componente añadido');
     }
@@ -84,7 +84,7 @@ export function Components() {
 
   async function deleteComponent() {
     if (!selected) return;
-    await supabase.from('components').delete().eq('id', selected.id);
+    await api.from('components').delete().eq('id', selected.id);
     await logAction('deleted', 'component', selected.id, selected.name);
     showToast('Componente eliminado', 'warning');
     load();
@@ -96,8 +96,8 @@ export function Components() {
       showToast('Stock insuficiente', 'error'); return;
     }
     const newStock = moveType === 'in' ? selected.stock + moveQty : selected.stock - moveQty;
-    await supabase.from('components').update({ stock: newStock, updated_at: new Date().toISOString() }).eq('id', selected.id);
-    await supabase.from('component_movements').insert([{
+    await api.from('components').update({ stock: newStock, updated_at: new Date().toISOString() }).eq('id', selected.id);
+    await api.from('component_movements').insert([{
       component_id: selected.id, movement_type: moveType, quantity: moveQty, reason: moveReason,
     }]);
     await logAction(moveType === 'in' ? 'stock_in' : 'stock_out', 'component', selected.id, selected.name, { qty: moveQty });
@@ -221,8 +221,8 @@ export function Components() {
               <tbody>
                 {paginatedMovements.map(m => (
                   <tr key={m.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-800">{(m.component as any)?.name}</td>
-                    <td className="px-4 py-3 text-gray-600">{(m.component as any)?.component_type}</td>
+                    <td className="px-4 py-3 font-medium text-gray-800">{m.component?.name}</td>
+                    <td className="px-4 py-3 text-gray-600">{m.component?.component_type}</td>
                     <td className="px-4 py-3">
                       {m.movement_type === 'in'
                         ? <span className="flex items-center gap-1 text-emerald-600 font-medium"><TrendingUp size={13} /> Entrada</span>

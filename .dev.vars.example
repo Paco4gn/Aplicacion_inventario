@@ -1,0 +1,21 @@
+# Opcional: habilita el panel técnico de las fichas QR.
+ASSET_PUBLIC_TECH_PIN=
+
+# Necesario para la sincronización automática del agente Windows.
+INVENTORY_AGENT_TOKEN=
+
+# Opcional: URL pública que aparece en los correos de incidencias.
+APP_URL=
+INCIDENT_EMAIL_FROM=IT Inventario <informatica@example.com>
+
+# Proveedores disponibles: resend, sendgrid, brevo, google_script o graph.
+MAIL_PROVIDER=
+RESEND_API_KEY=
+SENDGRID_API_KEY=
+BREVO_API_KEY=
+GOOGLE_SCRIPT_MAIL_URL=
+GOOGLE_SCRIPT_MAIL_SECRET=
+MS_TENANT_ID=
+MS_CLIENT_ID=
+MS_CLIENT_SECRET=
+MS_SENDER_EMAIL=

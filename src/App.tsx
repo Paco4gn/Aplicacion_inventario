@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Session } from '@supabase/supabase-js';
-import { isSupabaseConfigured, supabase } from './lib/supabase';
+import { api, type AppSession } from './lib/api';
 import { AppProvider, useApp } from './contexts/AppContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { Sidebar } from './components/layout/Sidebar';
@@ -47,35 +46,14 @@ function AppLayout() {
 const publicSerial = new URLSearchParams(window.location.search).get('asset');
 
 export default function App() {
-  if (!isSupabaseConfigured) {
-    return <SupabaseConfigMissing />;
-  }
-
   if (publicSerial) {
     return <AssetPublic serial={publicSerial} />;
   }
   return <AuthGate />;
 }
 
-function SupabaseConfigMissing() {
-  return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm max-w-xl w-full p-6">
-        <h1 className="text-xl font-bold text-gray-900 mb-2">Falta configurar Supabase</h1>
-        <p className="text-sm text-gray-600 mb-4">
-          Crea un archivo .env en la raiz del proyecto y rellena estas variables con los datos de tu proyecto Supabase.
-        </p>
-        <pre className="bg-gray-900 text-gray-100 text-xs rounded-xl p-4 overflow-x-auto">
-{`VITE_SUPABASE_URL=https://tu-proyecto.supabase.co
-VITE_SUPABASE_ANON_KEY=tu_clave_anon_publica`}
-        </pre>
-      </div>
-    </div>
-  );
-}
-
 function AuthGate() {
-  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [session, setSession] = useState<AppSession | null | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,7 +61,7 @@ function AuthGate() {
       if (!cancelled) setSession(null);
     }, 8000);
 
-    supabase.auth.getSession()
+    api.auth.getSession()
       .then(({ data: { session } }) => {
         if (!cancelled) setSession(session);
       })
@@ -94,14 +72,9 @@ function AuthGate() {
         window.clearTimeout(timeout);
       });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
     return () => {
       cancelled = true;
       window.clearTimeout(timeout);
-      subscription.unsubscribe();
     };
   }, []);
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 
 interface AlertCounts {
   openIncidents: number;
@@ -19,26 +19,26 @@ export function useAlertCounts() {
       const in30str = in30.toISOString().slice(0, 10);
 
       const [{ count: incidents }, { data: licenses }, { data: components }] = await Promise.all([
-        supabase.from('incidents').select('id', { count: 'exact', head: true }).in('status', ['open', 'assigned', 'in_progress', 'waiting_user']),
-        supabase.from('licenses').select('expiry_date').not('expiry_date', 'is', null).gte('expiry_date', today).lte('expiry_date', in30str),
-        supabase.from('components').select('stock, min_stock'),
+        api.from('incidents').select('id', { count: 'exact', head: true }).in('status', ['open', 'assigned', 'in_progress', 'waiting_user']),
+        api.from('licenses').select('expiry_date').not('expiry_date', 'is', null).gte('expiry_date', today).lte('expiry_date', in30str),
+        api.from('components').select('stock, min_stock'),
       ]);
 
       setCounts({
         openIncidents: incidents ?? 0,
         expiringLicenses: (licenses ?? []).length,
-        lowStock: (components ?? []).filter(c => c.stock <= c.min_stock).length,
+        lowStock: (components ?? []).filter((c: { stock: number; min_stock: number }) => c.stock <= c.min_stock).length,
       });
     }
     load();
 
-    const channel = supabase.channel('alert-counts')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'licenses' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'components' }, load)
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    const interval = window.setInterval(load, 30_000);
+    const refreshOnFocus = () => load();
+    window.addEventListener('focus', refreshOnFocus);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshOnFocus);
+    };
   }, []);
 
   return counts;

@@ -18,11 +18,11 @@ import {
   User,
   Wrench,
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { Badge } from '../components/ui/Badge';
 import { SkeletonCard } from '../components/ui/SkeletonRow';
 import { useApp } from '../contexts/AppContext';
-import type { Asset, Incident, License } from '../types';
+import type { Asset, Component, Incident, License } from '../types';
 
 interface AssetWithEmployee extends Asset {
   employee_name?: string | null;
@@ -269,11 +269,11 @@ export function Dashboard() {
         { data: licenses },
         { data: components },
       ] = await Promise.all([
-        supabase.from('assets').select('*').order('serial_number'),
-        supabase.from('asset_assignments').select('asset_id, employee:employees(name)').is('returned_at', null),
-        supabase.from('incidents').select('*, asset:assets(serial_number,location), employee:employees(name)').in('status', ['open', 'assigned', 'in_progress', 'waiting_user']).order('opened_at', { ascending: false }),
-        supabase.from('licenses').select('*, software:software(name,vendor)').order('expiry_date'),
-        supabase.from('components').select('stock, min_stock'),
+        api.from('assets').select('*').order('serial_number'),
+        api.from('asset_assignments').select('asset_id, employee:employees(name)').is('returned_at', null),
+        api.from('incidents').select('*, asset:assets(serial_number,location), employee:employees(name)').in('status', ['open', 'assigned', 'in_progress', 'waiting_user']).order('opened_at', { ascending: false }),
+        api.from('licenses').select('*, software:software(name,vendor)').order('expiry_date'),
+        api.from('components').select('stock, min_stock'),
       ]);
 
       const employeeByAsset: Record<string, string> = {};
@@ -388,7 +388,7 @@ export function Dashboard() {
         locationSummary: Object.values(locations).sort((a, b) => b.available - a.available || b.total - a.total),
         lifecycleAlerts: lifecycleAlerts.slice(0, 8),
         openIncidents: ((incidents ?? []) as unknown as Incident[]).slice(0, 6),
-        lowStockComponents: (components ?? []).filter(component => component.stock <= component.min_stock).length,
+        lowStockComponents: (components ?? []).filter((component: Pick<Component, 'stock' | 'min_stock'>) => component.stock <= component.min_stock).length,
         licenseSummary: {
           totalLicenses: licenseRows.length,
           totalSeats,

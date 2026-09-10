@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, CheckCircle, Download, CheckSquare, Square, X, Settings, Mail, Bell, Eye, MessageSquare, Send } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { logAction } from '../lib/audit';
 import { exportCSV } from '../lib/csv';
 import { useToast } from '../contexts/ToastContext';
@@ -101,23 +101,23 @@ export function Incidents() {
 
   async function load() {
     const [{ data: inc, error: incError }, { data: a }, { data: e }, { data: allEmployees }, { data: notificationRecipients }, { data: currentAssignments }] = await Promise.all([
-      supabase.from('incidents')
+      api.from('incidents')
         .select('*, asset:assets(serial_number,brand,model)')
         .order('opened_at', { ascending: false }),
-      supabase.from('assets').select('id,serial_number,brand,model').order('serial_number'),
-      supabase.from('employees').select('id,name,email').eq('active', true).order('name'),
-      supabase.from('employees').select('id,name,email').order('name'),
-      supabase.from('incident_notification_recipients').select('email,name,enabled').eq('enabled', true),
-      supabase.from('asset_assignments').select('asset_id,employee_id').is('returned_at', null),
+      api.from('assets').select('id,serial_number,brand,model').order('serial_number'),
+      api.from('employees').select('id,name,email').eq('active', true).order('name'),
+      api.from('employees').select('id,name,email').order('name'),
+      api.from('incident_notification_recipients').select('email,name,enabled').eq('enabled', true),
+      api.from('asset_assignments').select('asset_id,employee_id').is('returned_at', null),
     ]);
     if (incError) {
       showToast(`Error cargando incidencias: ${incError.message}`, 'error');
       setLoading(false);
       return;
     }
-    const employeeMap = new Map((allEmployees ?? []).map(employee => [employee.id, employee]));
-    const recipientMap = new Map((notificationRecipients ?? []).map(recipient => [recipient.email.toLowerCase(), recipient]));
-    setIncidents((inc ?? []).map(incident => ({
+    const employeeMap = new Map<string, EmployeeOption>((allEmployees ?? []).map((employee: EmployeeOption) => [employee.id, employee]));
+    const recipientMap = new Map<string, Pick<IncidentNotificationRecipient, 'email' | 'name'>>((notificationRecipients ?? []).map((recipient: Pick<IncidentNotificationRecipient, 'email' | 'name'>) => [recipient.email.toLowerCase(), recipient]));
+    setIncidents((inc ?? []).map((incident: Incident) => ({
       ...incident,
       employee: incident.employee_id ? employeeMap.get(incident.employee_id) ?? null : null,
       assigned_to: incident.assigned_to_email
@@ -131,13 +131,13 @@ export function Incidents() {
     setAssets(a ?? []);
     setEmployees(e ?? []);
     setEmployeeByAsset(Object.fromEntries((currentAssignments ?? [])
-      .filter(assignment => assignment.asset_id && assignment.employee_id)
-      .map(assignment => [assignment.asset_id, assignment.employee_id])));
+      .filter((assignment: { asset_id: string; employee_id: string | null }) => assignment.asset_id && assignment.employee_id)
+      .map((assignment: { asset_id: string; employee_id: string }) => [assignment.asset_id, assignment.employee_id])));
     setLoading(false);
   }
 
   async function loadRecipients() {
-    const { data, error } = await supabase
+    const { data, error } = await api
       .from('incident_notification_recipients')
       .select('*')
       .order('enabled', { ascending: false })
@@ -150,6 +150,8 @@ export function Incidents() {
     setRecipients(data ?? []);
   }
 
+  // Both loaders intentionally run once when the incident workspace opens.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); loadRecipients(); }, []);
   useEffect(() => { setPage(1); setSelectedIds(new Set()); }, [search, filterStatus, filterPriority]);
 
@@ -172,7 +174,12 @@ export function Incidents() {
   const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
 
   function toggleOne(id: string) {
-    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   function togglePage() {
@@ -197,7 +204,7 @@ export function Incidents() {
     setSelected(incident);
     setDetailOpen(true);
     setNewComment('');
-    const { data, error } = await supabase
+    const { data, error } = await api
       .from('incident_comments')
       .select('*')
       .eq('incident_id', incident.id)
@@ -212,7 +219,7 @@ export function Incidents() {
 
   async function addComment() {
     if (!selected || !newComment.trim()) return;
-    const { data, error } = await supabase
+    const { data, error } = await api
       .from('incident_comments')
       .insert([{
         incident_id: selected.id,
@@ -234,7 +241,7 @@ export function Incidents() {
 
   async function notifyIncident(incidentId: string, event: 'created' | 'updated' | 'assigned') {
     try {
-      const { data, error } = await supabase.functions.invoke('notify-incident', { body: { incident_id: incidentId, event } });
+      const { data, error } = await api.functions.invoke('notify-incident', { body: { incident_id: incidentId, event } });
       if (error || data?.sent === false) {
         const providerMessage = data?.error?.message ?? data?.reason ?? error?.message ?? 'No se pudo enviar el aviso';
         showToast(`Incidencia guardada, pero no se envio el correo: ${providerMessage}`, 'warning');
@@ -261,7 +268,7 @@ export function Incidents() {
       closed_at: editing.status === 'closed' ? (editing.closed_at ?? new Date().toISOString()) : null,
     };
     if (editing.id) {
-      const { error } = await supabase.from('incidents')
+      const { error } = await api.from('incidents')
         .update({ ...payload, updated_at: new Date().toISOString() })
         .eq('id', editing.id);
       if (error) { showToast('Error al actualizar', 'error'); return; }
@@ -271,7 +278,7 @@ export function Incidents() {
         await notifyIncident(editing.id, previous?.assigned_to_email !== payload.assigned_to_email ? 'assigned' : 'updated');
       }
     } else {
-      const { data, error } = await supabase.from('incidents').insert([payload]).select().maybeSingle();
+      const { data, error } = await api.from('incidents').insert([payload]).select().maybeSingle();
       if (error) { showToast('Error al crear', 'error'); return; }
       if (data) await logAction('created', 'incident', data.id, data.title);
       showToast('Incidencia creada');
@@ -291,8 +298,8 @@ export function Incidents() {
       updated_at: new Date().toISOString(),
     };
     const query = editingRecipient.id
-      ? supabase.from('incident_notification_recipients').update(payload).eq('id', editingRecipient.id)
-      : supabase.from('incident_notification_recipients').insert([payload]);
+      ? api.from('incident_notification_recipients').update(payload).eq('id', editingRecipient.id)
+      : api.from('incident_notification_recipients').insert([payload]);
     const { error } = await query;
     if (error) { showToast('No se pudo guardar el correo', 'error'); return; }
     setEditingRecipient(emptyRecipient);
@@ -301,7 +308,7 @@ export function Incidents() {
   }
 
   async function toggleRecipient(recipient: IncidentNotificationRecipient) {
-    const { error } = await supabase
+    const { error } = await api
       .from('incident_notification_recipients')
       .update({ enabled: !recipient.enabled, updated_at: new Date().toISOString() })
       .eq('id', recipient.id);
@@ -310,14 +317,14 @@ export function Incidents() {
   }
 
   async function deleteRecipient(recipient: IncidentNotificationRecipient) {
-    const { error } = await supabase.from('incident_notification_recipients').delete().eq('id', recipient.id);
+    const { error } = await api.from('incident_notification_recipients').delete().eq('id', recipient.id);
     if (error) { showToast('No se pudo eliminar el correo', 'error'); return; }
     showToast('Correo eliminado', 'warning');
     loadRecipients();
   }
 
   async function closeIncident(inc: Incident) {
-    await supabase.from('incidents')
+    await api.from('incidents')
       .update({ status: 'closed', resolved_at: inc.resolved_at ?? new Date().toISOString(), closed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', inc.id);
     await logAction('closed', 'incident', inc.id, inc.title);
@@ -328,7 +335,7 @@ export function Incidents() {
 
   async function deleteIncident() {
     if (!selected) return;
-    await supabase.from('incidents').delete().eq('id', selected.id);
+    await api.from('incidents').delete().eq('id', selected.id);
     await logAction('deleted', 'incident', selected.id, selected.title);
     showToast('Incidencia eliminada', 'warning');
     load();
@@ -336,7 +343,7 @@ export function Incidents() {
 
   async function bulkDelete() {
     const ids = Array.from(selectedIds);
-    await supabase.from('incidents').delete().in('id', ids);
+    await api.from('incidents').delete().in('id', ids);
     showToast(`${ids.length} incidencias eliminadas`, 'warning');
     clearSelection();
     load();
@@ -352,7 +359,7 @@ export function Incidents() {
       updated_at: now,
     };
     if (bulkStatus === 'in_progress') payload.started_at = now;
-    await supabase.from('incidents').update(payload).in('id', ids);
+    await api.from('incidents').update(payload).in('id', ids);
     showToast(`${ids.length} incidencias actualizadas`);
     clearSelection();
     load();
@@ -675,7 +682,7 @@ export function Incidents() {
           {!notificationReady && (
             <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
               <Bell size={18} className="mt-0.5 flex-shrink-0" />
-              <p>Falta aplicar la actualizacion de Supabase para activar la configuracion de avisos.</p>
+              <p>No se pudo cargar la configuración de avisos. Reintenta o comprueba el estado del servicio.</p>
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">

@@ -1,3 +1,0 @@
--- Deprecated migration.
--- Do not seed application users or default passwords from source control.
--- Create users from Supabase Auth or the application administration flow instead.

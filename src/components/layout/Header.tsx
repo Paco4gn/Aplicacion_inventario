@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, User, Search, Monitor, Users, AlertTriangle, X, LogOut, BookOpen, Package, CheckCircle } from 'lucide-react';
+import { Bell, User, Search, Monitor, Users, AlertTriangle, X, LogOut, BookOpen, Package, CheckCircle, RefreshCw } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
-import { supabase } from '../../lib/supabase';
+import { api } from '../../lib/api';
 import { useAlertCounts } from '../../hooks/useAlertCounts';
 
 const pageTitles: Record<string, string> = {
@@ -46,13 +46,29 @@ export function Header() {
   const bellRef = useRef<HTMLDivElement>(null);
 
   const [userEmail, setUserEmail] = useState('');
+  const [serviceOnline, setServiceOnline] = useState<boolean | null>(null);
 
   const totalAlerts = alertCounts.openIncidents + alertCounts.expiringLicenses + alertCounts.lowStock;
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    api.auth.getUser().then(({ data: { user } }) => {
       setUserEmail(user?.email ?? '');
     });
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    async function checkService() {
+      try {
+        const response = await fetch('/api/health', { headers: { Accept: 'application/json' } });
+        if (active) setServiceOnline(response.ok);
+      } catch {
+        if (active) setServiceOnline(false);
+      }
+    }
+    checkService();
+    const interval = window.setInterval(checkService, 60_000);
+    return () => { active = false; window.clearInterval(interval); };
   }, []);
 
   // Build notification list from alert counts
@@ -109,21 +125,21 @@ export function Header() {
     setSearchLoading(true);
     const pattern = `%${q}%`;
     const [{ data: assets }, { data: employees }, { data: incidents }] = await Promise.all([
-      supabase.from('assets').select('id,serial_number,brand,model,asset_type').or(`serial_number.ilike.${pattern},brand.ilike.${pattern},model.ilike.${pattern}`).limit(4),
-      supabase.from('employees').select('id,name,department').ilike('name', pattern).limit(4),
-      supabase.from('incidents').select('id,title,status').ilike('title', pattern).limit(4),
+      api.from('assets').select('id,serial_number,brand,model,asset_type').or(`serial_number.ilike.${pattern},brand.ilike.${pattern},model.ilike.${pattern}`).limit(4),
+      api.from('employees').select('id,name,department').ilike('name', pattern).limit(4),
+      api.from('incidents').select('id,title,status').ilike('title', pattern).limit(4),
     ]);
 
     const r: SearchResult[] = [
-      ...(assets ?? []).map(a => ({
+      ...(assets ?? []).map((a: { id: string; serial_number: string; brand: string; model: string; asset_type: string }) => ({
         id: a.id, label: a.serial_number, sublabel: `${a.asset_type} · ${a.brand} ${a.model}`,
         type: 'asset' as const, page: 'assets' as const,
       })),
-      ...(employees ?? []).map(e => ({
+      ...(employees ?? []).map((e: { id: string; name: string; department: string }) => ({
         id: e.id, label: e.name, sublabel: e.department || 'Empleado',
         type: 'employee' as const, page: 'employees' as const,
       })),
-      ...(incidents ?? []).map(i => ({
+      ...(incidents ?? []).map((i: { id: string; title: string; status: string }) => ({
         id: i.id, label: i.title, sublabel: `Incidencia · ${i.status}`,
         type: 'incident' as const, page: 'incidents' as const,
       })),
@@ -156,8 +172,8 @@ export function Header() {
   const displayName = userEmail ? userEmail.split('@')[0] : 'Admin';
 
   return (
-    <header className="h-14 bg-white border-b border-gray-100 flex items-center justify-between px-6 flex-shrink-0 gap-4">
-      <h1 className="text-lg font-semibold text-gray-800 flex-shrink-0">{pageTitles[currentPage] ?? ''}</h1>
+    <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-3 sm:px-6 flex-shrink-0 gap-3 sm:gap-4">
+      <h1 className="hidden md:block text-lg font-semibold text-gray-800 flex-shrink-0">{pageTitles[currentPage] ?? ''}</h1>
 
       {/* Global search */}
       <div ref={searchRef} className="relative flex-1 max-w-md">
@@ -212,6 +228,14 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0">
+        <button
+          onClick={() => window.location.reload()}
+          className={`hidden lg:flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium ${serviceOnline === false ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}
+          title={serviceOnline === false ? 'Servicio sin conexión. Recargar' : 'Servicio operativo'}
+        >
+          {serviceOnline === false ? <RefreshCw size={13} /> : <span className="h-2 w-2 rounded-full bg-emerald-500" />}
+          {serviceOnline === false ? 'Reintentar' : 'Servicio activo'}
+        </button>
         {/* Notifications bell */}
         <div ref={bellRef} className="relative">
           <button
@@ -274,11 +298,11 @@ export function Header() {
           <div className="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center">
             <User size={14} className="text-white" />
           </div>
-          <span className="text-sm font-medium text-gray-700 max-w-[120px] truncate">{displayName}</span>
+          <span className="hidden sm:block text-sm font-medium text-gray-700 max-w-[120px] truncate">{displayName}</span>
         </button>
 
         <button
-          onClick={() => supabase.auth.signOut()}
+          onClick={() => api.auth.signOut()}
           className="p-2 rounded-xl hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors"
           title="Cerrar sesión"
         >

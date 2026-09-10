@@ -1,14 +1,13 @@
+[CmdletBinding()]
 param(
   [string]$OutputPath = ".\inventario-equipo.csv",
   [string]$SerialNumber = "",
   [string]$Location = "",
   [string]$AssetType = "",
   [string]$Notes = "Inventario automatico",
-  [string]$SupabaseUrl = "",
-  [string]$SupabaseAnonKey = "",
-  [string]$SupabaseEmail = "",
-  [string]$SupabasePassword = "",
-  [switch]$SyncToSupabase,
+  [string]$ApiUrl = "",
+  [string]$AgentToken = "",
+  [switch]$SyncToInventory,
   [switch]$InstallScheduledTask,
   [switch]$Install,
   [int]$IntervalMinutes = 60,
@@ -21,20 +20,14 @@ $ErrorActionPreference = "Stop"
 $ConfigDir = Join-Path $env:ProgramData "ITInventario"
 $ConfigPath = Join-Path $ConfigDir "agent.json"
 
-function FirstValue($value, $fallback = "") {
-  if ($null -eq $value) { return $fallback }
-  if ($value -is [array]) {
-    if ($value.Count -eq 0) { return $fallback }
-    return $value[0]
+function First-Value {
+  param($Value, $Fallback = "")
+  if ($null -eq $Value) { return $Fallback }
+  if ($Value -is [array]) {
+    if ($Value.Count -eq 0) { return $Fallback }
+    return $Value[0]
   }
-  return $value
-}
-
-function Load-AgentConfig {
-  if (Test-Path $ConfigPath) {
-    return Get-Content $ConfigPath -Raw | ConvertFrom-Json
-  }
-  return $null
+  return $Value
 }
 
 function Protect-Text {
@@ -47,32 +40,45 @@ function Unprotect-Text {
   param([string]$ProtectedText)
   if (-not $ProtectedText) { return "" }
   $secure = ConvertTo-SecureString $ProtectedText
-  $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+  $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
   try {
-    return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
   } finally {
-    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
   }
+}
+
+function Load-AgentConfig {
+  if (Test-Path -LiteralPath $ConfigPath) {
+    return Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+  }
+  return $null
 }
 
 function Save-AgentConfig {
   param([hashtable]$Config)
   New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
-  $Config | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8
+  $Config | ConvertTo-Json | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
 }
 
 function Apply-ConfigDefaults {
   $config = Load-AgentConfig
   if ($null -eq $config) { return }
-  if (-not $SupabaseUrl) { $script:SupabaseUrl = $config.supabase_url }
-  if (-not $SupabaseAnonKey) { $script:SupabaseAnonKey = $config.supabase_anon_key }
-  if (-not $SupabaseEmail) { $script:SupabaseEmail = $config.supabase_email }
-  if (-not $SupabasePassword -and $config.supabase_password_protected) { $script:SupabasePassword = Unprotect-Text $config.supabase_password_protected }
-  if (-not $SupabasePassword -and $config.supabase_password) { $script:SupabasePassword = $config.supabase_password }
+  if (-not $ApiUrl) { $script:ApiUrl = $config.api_url }
+  if (-not $AgentToken -and $config.agent_token_protected) { $script:AgentToken = Unprotect-Text $config.agent_token_protected }
   if (-not $SerialNumber) { $script:SerialNumber = $config.serial_number }
   if (-not $Location) { $script:Location = $config.location }
   if (-not $AssetType -and $config.asset_type) { $script:AssetType = $config.asset_type }
   if (-not $Notes -and $config.notes) { $script:Notes = $config.notes }
+}
+
+function Get-DetectedAssetType {
+  param($ChassisTypes)
+  $laptopTypes = @(8, 9, 10, 11, 12, 14, 18, 21, 30, 31, 32)
+  foreach ($type in @($ChassisTypes)) {
+    if ($laptopTypes -contains [int]$type) { return "Laptop" }
+  }
+  return "Torre"
 }
 
 function Get-InventoryRow {
@@ -82,193 +88,58 @@ function Get-InventoryRow {
   $os = Get-CimInstance Win32_OperatingSystem
   $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
   $disks = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3"
-  $net = Get-CimInstance Win32_NetworkAdapterConfiguration |
+  $network = Get-CimInstance Win32_NetworkAdapterConfiguration |
     Where-Object { $_.IPEnabled -eq $true -and $_.MACAddress } |
     Select-Object -First 1
 
-  $serial = ""
-  if ($null -ne $bios.SerialNumber) {
-    $serial = $bios.SerialNumber.Trim()
-  }
+  $serial = if ($bios.SerialNumber) { $bios.SerialNumber.Trim() } else { "" }
   if ([string]::IsNullOrWhiteSpace($serial) -or $serial -match "To be filled|Default|string") {
     $serial = $env:COMPUTERNAME
   }
-  if (-not [string]::IsNullOrWhiteSpace($SerialNumber)) {
-    $serial = $SerialNumber.Trim()
-  }
+  if ($SerialNumber) { $serial = $SerialNumber.Trim() }
 
   $ramGb = [math]::Round(($computer.TotalPhysicalMemory / 1GB), 2)
   $storageGb = [math]::Round((($disks | Measure-Object -Property Size -Sum).Sum / 1GB), 2)
-  $ip = FirstValue $net.IPAddress
   $now = (Get-Date).ToUniversalTime().ToString("o")
-  $culture = [System.Globalization.CultureInfo]::InvariantCulture
 
   return [ordered]@{
-    "serial_number" = $serial
-    "name" = $env:COMPUTERNAME
-    "asset_type" = if ($AssetType) { $AssetType } else { Get-DetectedAssetType -ChassisTypes $enclosure.ChassisTypes }
-    "brand" = $computer.Manufacturer
-    "model" = $computer.Model
-    "status" = "active"
-    "location" = $Location
-    "operating_system" = "$($os.Caption) $($os.Version)"
-    "ip_address" = $ip
-    "mac_address" = $net.MACAddress
-    "processor" = $cpu.Name
-    "ram_gb" = $ramGb.ToString($culture)
-    "storage_gb" = $storageGb.ToString($culture)
-    "last_inventory_at" = $now
-    "notes" = $Notes
+    serial_number = $serial
+    name = $env:COMPUTERNAME
+    asset_type = if ($AssetType) { $AssetType } else { Get-DetectedAssetType -ChassisTypes $enclosure.ChassisTypes }
+    brand = $computer.Manufacturer
+    model = $computer.Model
+    status = "active"
+    location = $Location
+    operating_system = "$($os.Caption) $($os.Version)"
+    ip_address = First-Value $network.IPAddress
+    mac_address = $network.MACAddress
+    processor = $cpu.Name
+    ram_gb = $ramGb
+    storage_gb = $storageGb
+    last_inventory_at = $now
+    notes = $Notes
   }
 }
 
-function Get-SupabaseAccessToken {
-  if (-not $SupabaseEmail -or -not $SupabasePassword) {
-    return ""
-  }
-
-  $authUrl = "$($SupabaseUrl.TrimEnd('/'))/auth/v1/token?grant_type=password"
-  $headers = @{
-    "apikey" = $SupabaseAnonKey
-    "Content-Type" = "application/json"
-  }
-  $body = @{
-    email = $SupabaseEmail
-    password = $SupabasePassword
-  } | ConvertTo-Json
-
-  $response = Invoke-RestMethod -Method Post -Uri $authUrl -Headers $headers -Body $body
-  return $response.access_token
-}
-
-function Test-SupabaseColumn {
-  param(
-    [string]$BaseUrl,
-    [hashtable]$Headers,
-    [string]$ColumnName
-  )
-
-  try {
-    Invoke-RestMethod -Method Get -Uri "$BaseUrl/rest/v1/assets?select=$ColumnName&limit=0" -Headers $Headers | Out-Null
-    return $true
-  } catch {
-    return $false
-  }
-}
-
-function Select-ExistingAssetFields {
-  param(
-    [hashtable]$Payload,
-    [string]$BaseUrl,
-    [hashtable]$Headers
-  )
-
-  $filtered = @{}
-  $missing = @()
-  foreach ($key in $Payload.Keys) {
-    if (Test-SupabaseColumn -BaseUrl $BaseUrl -Headers $Headers -ColumnName $key) {
-      $filtered[$key] = $Payload[$key]
-    } else {
-      $missing += $key
-    }
-  }
-
-  if ($missing.Count -gt 0) {
-    Write-Host "Aviso: faltan columnas en Supabase y se omiten por ahora: $($missing -join ', ')"
-    Write-Host "Ejecuta la migracion de Supabase para guardar tambien las especificaciones tecnicas."
-  }
-
-  return $filtered
-}
-
-function Sync-InventoryToSupabase {
+function Sync-Inventory {
   param([hashtable]$Row)
-
-  if (-not $SupabaseUrl -or -not $SupabaseAnonKey) {
-    throw "Faltan SupabaseUrl y SupabaseAnonKey. Instala/configura el agente antes de sincronizar."
+  if (-not $ApiUrl -or -not $AgentToken) {
+    throw "Faltan ApiUrl y AgentToken. Instala o configura el agente antes de sincronizar."
   }
-
-  $token = Get-SupabaseAccessToken
-  if (-not $token) {
-    $token = $SupabaseAnonKey
+  $endpoint = if ($ApiUrl.TrimEnd('/') -match '/api/agent/sync$') {
+    $ApiUrl.TrimEnd('/')
+  } else {
+    "$($ApiUrl.TrimEnd('/'))/api/agent/sync"
   }
-
-  $baseUrl = $SupabaseUrl.TrimEnd('/')
-  $headers = @{
-    "apikey" = $SupabaseAnonKey
-    "Authorization" = "Bearer $token"
-    "Content-Type" = "application/json"
-  }
-
-  if ([string]::IsNullOrWhiteSpace($SerialNumber)) {
-    $Row.serial_number = Get-NextInventorySerial -BaseUrl $baseUrl -Headers $headers
-  }
-
-  $encodedSerial = [System.Uri]::EscapeDataString("eq.$($Row.serial_number)")
-  $lookupUrl = "$baseUrl/rest/v1/assets?serial_number=$encodedSerial&select=id,serial_number"
-  $existing = Invoke-RestMethod -Method Get -Uri $lookupUrl -Headers $headers
-
-  if ($existing.Count -gt 0) {
-    $technicalPayload = @{
-      name = $Row.name
-      brand = $Row.brand
-      model = $Row.model
-      operating_system = $Row.operating_system
-      ip_address = $Row.ip_address
-      mac_address = $Row.mac_address
-      processor = $Row.processor
-      ram_gb = $Row.ram_gb
-      storage_gb = $Row.storage_gb
-      last_inventory_at = $Row.last_inventory_at
-      updated_at = $Row.last_inventory_at
-    }
-    $technicalPayload = Select-ExistingAssetFields -Payload $technicalPayload -BaseUrl $baseUrl -Headers $headers
-    $patchUrl = "$baseUrl/rest/v1/assets?serial_number=$encodedSerial"
-    $patchHeaders = $headers.Clone()
-    $patchHeaders["Prefer"] = "return=minimal"
-    Invoke-RestMethod -Method Patch -Uri $patchUrl -Headers $patchHeaders -Body ($technicalPayload | ConvertTo-Json -Depth 5) | Out-Null
-    Write-Host "Activo existente actualizado por numero de serie: $($Row.serial_number)"
-    return
-  }
-
-  $createHeaders = $headers.Clone()
-  $createHeaders["Prefer"] = "return=minimal"
-  $createPayload = Select-ExistingAssetFields -Payload $Row -BaseUrl $baseUrl -Headers $headers
-  $body = @($createPayload) | ConvertTo-Json -Depth 5
-  Invoke-RestMethod -Method Post -Uri "$baseUrl/rest/v1/assets" -Headers $createHeaders -Body $body | Out-Null
-  Write-Host "Activo nuevo creado por numero de serie: $($Row.serial_number)"
-}
-
-function Get-DetectedAssetType {
-  param($ChassisTypes)
-  $laptopTypes = @(8, 9, 10, 11, 12, 14, 18, 21, 30, 31, 32)
-  foreach ($type in @($ChassisTypes)) {
-    if ($laptopTypes -contains [int]$type) {
-      return "Laptop"
-    }
-  }
-  return "Torre"
-}
-
-function Get-NextInventorySerial {
-  param(
-    [string]$BaseUrl,
-    [hashtable]$Headers
-  )
-
-  $url = "$BaseUrl/rest/v1/assets?select=serial_number&serial_number=like.PC*&order=serial_number.desc&limit=1000"
-  $rows = Invoke-RestMethod -Method Get -Uri $url -Headers $Headers
-  $max = 0
-  foreach ($row in $rows) {
-    if ($row.serial_number -match '^PC(\d+)$') {
-      $number = [int]$Matches[1]
-      if ($number -gt $max) { $max = $number }
-    }
-  }
-  return "PC{0:D3}" -f ($max + 1)
+  $headers = @{ Authorization = "Bearer $AgentToken" }
+  $result = Invoke-RestMethod -Method Post -Uri $endpoint -Headers $headers -ContentType "application/json" -Body ($Row | ConvertTo-Json -Depth 5)
+  Write-Host "Activo $($result.action): $($result.serial_number)"
 }
 
 function Install-AgentTask {
+  if (-not $ApiUrl -or -not $AgentToken) {
+    throw "Para instalar la tarea indica -ApiUrl y -AgentToken."
+  }
   $scriptPath = $PSCommandPath
   if (-not $scriptPath) { throw "No se pudo localizar la ruta del script." }
   New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
@@ -278,67 +149,38 @@ function Install-AgentTask {
   }
 
   Save-AgentConfig @{
-    supabase_url = $SupabaseUrl
-    supabase_anon_key = $SupabaseAnonKey
-    supabase_email = $SupabaseEmail
-    supabase_password_protected = Protect-Text $SupabasePassword
+    api_url = $ApiUrl.TrimEnd('/')
+    agent_token_protected = Protect-Text $AgentToken
     serial_number = $SerialNumber
     location = $Location
     asset_type = $AssetType
     notes = $Notes
   }
 
-  $arguments = "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$installedScriptPath`" -SyncToSupabase"
+  $arguments = "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$installedScriptPath`" -SyncToInventory"
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments
   $repeatEvery = if ($IntervalDays -gt 0) { New-TimeSpan -Days $IntervalDays } else { New-TimeSpan -Minutes $IntervalMinutes }
-  $triggers = @(
-    New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval $repeatEvery -RepetitionDuration (New-TimeSpan -Days 3650)
-  )
-  if ($RunAtStartup) {
-    $triggers += New-ScheduledTaskTrigger -AtStartup
-  }
+  $triggers = @(New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval $repeatEvery -RepetitionDuration (New-TimeSpan -Days 3650))
+  if ($RunAtStartup) { $triggers += New-ScheduledTaskTrigger -AtStartup }
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers -Description "Actualiza automaticamente este equipo en IT Inventario" -Force | Out-Null
-  if ($IntervalDays -gt 0) {
-    Write-Host "Tarea programada instalada: $TaskName cada $IntervalDays dias"
-  } else {
-    Write-Host "Tarea programada instalada: $TaskName cada $IntervalMinutes minutos"
-  }
-  if ($RunAtStartup) { Write-Host "Tambien se ejecutara al arrancar Windows" }
+  Write-Host "Tarea programada instalada: $TaskName"
   Write-Host "Agente instalado en: $installedScriptPath"
-  Write-Host "Config guardada en: $ConfigPath"
 }
 
 if ($Install) {
   $InstallScheduledTask = $true
-  $SyncToSupabase = $true
-  if (-not $SupabaseUrl) { $SupabaseUrl = "https://dwudqkzkwsqwxshumlza.supabase.co" }
-  if (-not $SupabaseAnonKey) { $SupabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3dWRxa3prd3Nxd3hzaHVtbHphIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNDM0NTYsImV4cCI6MjA5MjgxOTQ1Nn0.uJF1whOlEYgaNeXy4uJ1mXR6MONxuXSGdecJAyYWObo" }
-  if (-not $SupabaseEmail) { $SupabaseEmail = "informatica@feval.com" }
-  if (-not $SupabasePassword) {
-    $securePassword = Read-Host "Introduce la contrasena del usuario de Supabase ($SupabaseEmail)" -AsSecureString
-    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
-    try {
-      $SupabasePassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-    } finally {
-      [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-    }
-  }
+  $SyncToInventory = $true
 }
 
 Apply-ConfigDefaults
 
-if ($InstallScheduledTask) {
-  if (-not $SupabaseUrl -or -not $SupabaseAnonKey) {
-    throw "Para instalar la tarea indica -SupabaseUrl y -SupabaseAnonKey."
-  }
-  Install-AgentTask
-}
+if ($InstallScheduledTask) { Install-AgentTask }
 
 $row = Get-InventoryRow
 [pscustomobject]$row | Export-Csv -Path $OutputPath -NoTypeInformation -Encoding UTF8
 Write-Host "Inventario exportado en: $((Resolve-Path $OutputPath).Path)"
 
-if ($SyncToSupabase) {
-  Sync-InventoryToSupabase -Row $row
-  Write-Host "Inventario sincronizado con Supabase para el equipo: $($row.serial_number)"
+if ($SyncToInventory) {
+  Sync-Inventory -Row $row
+  Write-Host "Inventario sincronizado para el equipo: $($row.serial_number)"
 }

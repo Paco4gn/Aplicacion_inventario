@@ -1,17 +1,19 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "it-inventario-feval",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/prepare-hosting-build.mjs",
+    "db:generate": "drizzle-kit generate",
+    "types": "wrangler types",
     "lint": "eslint .",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json"
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.worker.json && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.57.4",
+    "drizzle-orm": "^0.45.2",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
@@ -20,7 +22,10 @@
     "@eslint/js": "^9.9.1",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@cloudflare/vite-plugin": "^1.54.6",
+    "@cloudflare/workers-types": "^5.20260910.1",
+    "@types/node": "^22.20.2",
+    "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.18",
     "eslint": "^9.9.1",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
@@ -28,8 +33,10 @@
     "globals": "^15.9.0",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.5.3",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.9.2",
     "typescript-eslint": "^8.3.0",
-    "vite": "^5.4.2"
+    "vite": "^7.1.5",
+    "wrangler": "^4.130.0"
   }
 }
