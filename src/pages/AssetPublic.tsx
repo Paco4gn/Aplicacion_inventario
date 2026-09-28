@@ -5,6 +5,7 @@ import {
   ChevronDown, ChevronUp, Printer, RefreshCw, Clock, Flag, X, Lock, KeyRound,
   Settings,
 } from 'lucide-react';
+import { apiUrl } from '../lib/api';
 
 interface PublicAsset {
   id: string;
@@ -57,7 +58,7 @@ function apiFetch(serial: string, method: string, body?: object, techPin?: strin
   const params = new URLSearchParams({ serial });
   if (techPin) params.set('tech_pin', techPin);
   return fetch(
-    `/api/public/assets?${params.toString()}`,
+    apiUrl(`/api/public/assets?${params.toString()}`),
     {
       method,
       headers: {

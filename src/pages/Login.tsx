@@ -1,6 +1,26 @@
-import { Cpu, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
+import { Cpu, KeyRound, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { api } from '../lib/api';
 
 export function Login() {
+  const [accessKey, setAccessKey] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!accessKey.trim()) return;
+    setLoading(true);
+    setError('');
+    const result = await api.auth.signIn(accessKey);
+    if (result.error) {
+      setError(result.error.message);
+      setLoading(false);
+      return;
+    }
+    window.location.reload();
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 sm:p-8 relative overflow-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(37,99,235,0.24),_transparent_42%)]" />
@@ -21,13 +41,32 @@ export function Login() {
               <p className="text-sm leading-6 text-slate-500 mt-1">Identifícate con tu cuenta autorizada para administrar el inventario.</p>
             </div>
           </div>
-          <a
-            href={`/signin-with-chatgpt?return_to=${encodeURIComponent('/')}`}
-            className="w-full btn-primary py-3 flex items-center justify-center gap-2"
-          >
-            <LockKeyhole size={18} />
-            Entrar de forma segura
-          </a>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Clave de acceso</span>
+              <div className="relative mt-2">
+                <KeyRound size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="password"
+                  value={accessKey}
+                  onChange={(event) => setAccessKey(event.target.value)}
+                  autoComplete="current-password"
+                  className="input w-full pl-10"
+                  placeholder="Introduce la clave del inventario"
+                  autoFocus
+                />
+              </div>
+            </label>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <button
+              type="submit"
+              disabled={loading || !accessKey.trim()}
+              className="w-full btn-primary py-3 flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              <LockKeyhole size={18} />
+              {loading ? 'Comprobando…' : 'Entrar de forma segura'}
+            </button>
+          </form>
           <div className="mt-6 pt-5 border-t border-slate-100 flex items-center gap-2 text-xs text-slate-500">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             Datos alojados en la nueva plataforma de inventario

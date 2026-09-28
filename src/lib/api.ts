@@ -11,6 +11,20 @@ interface ApiError {
   message: string;
 }
 
+const ACCESS_TOKEN_KEY = 'it-inventario-access-token';
+const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+
+export function apiUrl(path: string) {
+  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+export function apiRequest(path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  const accessToken = window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+  return fetch(apiUrl(path), { ...init, headers });
+}
+
 // The compatibility client intentionally carries the page-specific row shape.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 interface QueryResult<T = any> {
@@ -110,7 +124,7 @@ class QueryBuilder implements PromiseLike<QueryResult> {
 
   private async execute(): Promise<QueryResult> {
     try {
-      const response = await fetch(`/api/data/${encodeURIComponent(this.table)}`, {
+      const response = await apiRequest(`/api/data/${encodeURIComponent(this.table)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(this.payload),
@@ -136,7 +150,7 @@ class QueryBuilder implements PromiseLike<QueryResult> {
 
 async function postFunction(name: string, body: unknown) {
   try {
-    const response = await fetch(`/api/functions/${encodeURIComponent(name)}`, {
+    const response = await apiRequest(`/api/functions/${encodeURIComponent(name)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -157,7 +171,7 @@ export const api = {
   auth: {
     async getSession(): Promise<{ data: { session: AppSession | null } }> {
       try {
-        const response = await fetch('/api/session', { headers: { Accept: 'application/json' } });
+        const response = await apiRequest('/api/session', { headers: { Accept: 'application/json' } });
         if (!response.ok) return { data: { session: null } };
         const data = await response.json() as { user?: AppUser };
         return { data: { session: data.user ? { user: data.user } : null } };
@@ -169,8 +183,18 @@ export const api = {
       const { data } = await this.getSession();
       return { data: { user: data.session?.user ?? null } };
     },
+    async signIn(accessToken: string): Promise<{ error: ApiError | null }> {
+      window.sessionStorage.setItem(ACCESS_TOKEN_KEY, accessToken.trim());
+      const { data } = await this.getSession();
+      if (!data.session) {
+        window.sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+        return { error: { message: 'Clave de acceso incorrecta' } };
+      }
+      return { error: null };
+    },
     signOut() {
-      window.location.assign(`/signout-with-chatgpt?return_to=${encodeURIComponent('/')}`);
+      window.sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+      window.location.reload();
     },
   },
   functions: {

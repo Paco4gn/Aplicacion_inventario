@@ -2,6 +2,8 @@ interface AppEnv extends Env {
   ASSETS: Fetcher;
   ASSET_PUBLIC_TECH_PIN?: string;
   INVENTORY_AGENT_TOKEN?: string;
+  INVENTORY_WEB_TOKEN?: string;
+  GITHUB_PAGES_ORIGIN?: string;
   APP_URL?: string;
   MAIL_PROVIDER?: string;
   INCIDENT_EMAIL_FROM?: string;
@@ -98,15 +100,40 @@ function json(data: unknown, status = 200, headers: HeadersInit = {}) {
   });
 }
 
-function getUser(request: Request) {
+async function getUser(request: Request, env: AppEnv) {
   const url = new URL(request.url);
-  const id = request.headers.get('oai-authenticated-user-id') ?? request.headers.get('x-openai-authenticated-user-id');
-  const email = request.headers.get('oai-authenticated-user-email') ?? request.headers.get('x-openai-authenticated-user-email');
-  if (id || email) return { id: id ?? email ?? 'user', email: email ?? '' };
   if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
     return { id: 'local-development', email: 'desarrollo@local' };
   }
+  const supplied = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') ?? '';
+  if (env.INVENTORY_WEB_TOKEN) {
+    return supplied && await safeEqual(supplied, env.INVENTORY_WEB_TOKEN)
+      ? { id: 'github-pages-user', email: 'inventario@github-pages' }
+      : null;
+  }
+  const id = request.headers.get('oai-authenticated-user-id') ?? request.headers.get('x-openai-authenticated-user-id');
+  const email = request.headers.get('oai-authenticated-user-email') ?? request.headers.get('x-openai-authenticated-user-email');
+  if (id || email) return { id: id ?? email ?? 'user', email: email ?? '' };
   return null;
+}
+
+function corsHeaders(request: Request, env: AppEnv) {
+  const origin = request.headers.get('Origin') ?? '';
+  const allowedOrigin = env.GITHUB_PAGES_ORIGIN ?? 'https://paco4gn.github.io';
+  if (origin !== allowedOrigin && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return {};
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin',
+  };
+}
+
+function withCors(response: Response, request: Request, env: AppEnv) {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(corsHeaders(request, env))) headers.set(key, value);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 function isTableName(value: string): value is TableName {
@@ -381,7 +408,7 @@ async function mutateRows(db: D1Database, table: TableName, payload: DataRecord)
 }
 
 async function handleDataApi(request: Request, env: AppEnv, tableValue: string) {
-  if (!getUser(request)) return json({ error: { message: 'Inicia sesión para acceder al inventario' } }, 401);
+  if (!await getUser(request, env)) return json({ error: { message: 'Inicia sesión para acceder al inventario' } }, 401);
   if (!isTableName(tableValue)) return json({ error: { message: 'Recurso no válido' } }, 404);
   if (request.method !== 'POST') return json({ error: { message: 'Método no permitido' } }, 405);
   const payload = await request.json<DataRecord>();
@@ -573,7 +600,7 @@ const migrationOrder: TableName[] = [
 ];
 
 async function handleBackup(request: Request, env: AppEnv) {
-  if (!getUser(request)) return json({ error: 'unauthenticated' }, 401);
+  if (!await getUser(request, env)) return json({ error: 'unauthenticated' }, 401);
   if (request.method === 'GET') {
     const tables: Record<string, DataRecord[]> = {};
     for (const table of migrationOrder) {
@@ -606,32 +633,44 @@ async function handleBackup(request: Request, env: AppEnv) {
 export default {
   async fetch(request: Request, env: AppEnv): Promise<Response> {
     const url = new URL(request.url);
+    if (request.method === 'OPTIONS') {
+      return withCors(new Response(null, { status: 204 }), request, env);
+    }
     try {
+      let response: Response;
       if (url.pathname === '/api/health') {
         const row = await env.DB.prepare('SELECT 1 AS ok').first<{ ok: number }>();
-        return json({ status: row?.ok === 1 ? 'ok' : 'degraded', service: 'IT Inventario', storage: 'D1' });
+        response = json({ status: row?.ok === 1 ? 'ok' : 'degraded', service: 'IT Inventario', storage: 'D1' });
+      } else if (url.pathname === '/api/session') {
+        const user = await getUser(request, env);
+        response = user ? json({ user }) : json({ error: 'unauthenticated' }, 401);
+      } else if (url.pathname.startsWith('/api/data/')) {
+        response = await handleDataApi(request, env, decodeURIComponent(url.pathname.slice('/api/data/'.length)));
+      } else if (url.pathname === '/api/public/assets') {
+        response = await publicAsset(request, env);
+      } else if (url.pathname === '/api/agent/sync') {
+        response = await handleAgentSync(request, env);
+      } else if (url.pathname === '/api/admin/backup') {
+        response = await handleBackup(request, env);
+      } else if (url.pathname === '/api/functions/notify-incident') {
+        if (!await getUser(request, env)) response = json({ error: 'unauthenticated' }, 401);
+        else if (request.method !== 'POST') response = json({ error: 'method_not_allowed' }, 405);
+        else {
+          const body = await request.json<{ incident_id?: string; event?: string }>();
+          response = body.incident_id
+            ? json(await notifyIncident(env, body.incident_id, body.event ?? 'created'))
+            : json({ error: 'incident_id_required' }, 400);
+        }
+      } else if (url.pathname.startsWith('/api/')) {
+        response = json({ error: 'not_found' }, 404);
+      } else {
+        response = await env.ASSETS.fetch(request);
       }
-      if (url.pathname === '/api/session') {
-        const user = getUser(request);
-        return user ? json({ user }) : json({ error: 'unauthenticated' }, 401);
-      }
-      if (url.pathname.startsWith('/api/data/')) return handleDataApi(request, env, decodeURIComponent(url.pathname.slice('/api/data/'.length)));
-      if (url.pathname === '/api/public/assets') return publicAsset(request, env);
-      if (url.pathname === '/api/agent/sync') return handleAgentSync(request, env);
-      if (url.pathname === '/api/admin/backup') return handleBackup(request, env);
-      if (url.pathname === '/api/functions/notify-incident') {
-        if (!getUser(request)) return json({ error: 'unauthenticated' }, 401);
-        if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
-        const body = await request.json<{ incident_id?: string; event?: string }>();
-        if (!body.incident_id) return json({ error: 'incident_id_required' }, 400);
-        return json(await notifyIncident(env, body.incident_id, body.event ?? 'created'));
-      }
-      if (url.pathname.startsWith('/api/')) return json({ error: 'not_found' }, 404);
-      return env.ASSETS.fetch(request);
+      return withCors(response, request, env);
     } catch (error) {
       const requestId = crypto.randomUUID();
       console.error(JSON.stringify({ event: 'request_failed', requestId, path: url.pathname, method: request.method, message: error instanceof Error ? error.message : String(error) }));
-      return json({ error: { message: 'No se pudo completar la operación', requestId } }, 500);
+      return withCors(json({ error: { message: 'No se pudo completar la operación', requestId } }, 500), request, env);
     }
   },
 } satisfies ExportedHandler<AppEnv>;

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Bell, User, Search, Monitor, Users, AlertTriangle, X, LogOut, BookOpen, Package, CheckCircle, RefreshCw } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
-import { api } from '../../lib/api';
+import { api, apiRequest } from '../../lib/api';
 import { useAlertCounts } from '../../hooks/useAlertCounts';
 
 const pageTitles: Record<string, string> = {
@@ -60,7 +60,7 @@ export function Header() {
     let active = true;
     async function checkService() {
       try {
-        const response = await fetch('/api/health', { headers: { Accept: 'application/json' } });
+        const response = await apiRequest('/api/health', { headers: { Accept: 'application/json' } });
         if (active) setServiceOnline(response.ok);
       } catch {
         if (active) setServiceOnline(false);

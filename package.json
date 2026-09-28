@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/prepare-hosting-build.mjs",
+    "build:pages": "vite build --mode github-pages",
     "db:generate": "drizzle-kit generate",
     "types": "wrangler types",
     "lint": "eslint .",

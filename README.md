@@ -6,7 +6,9 @@ La aplicación usa React y TypeScript en la interfaz, Cloudflare Workers para la
 
 ## Aplicación publicada
 
-La dirección estable es [paco4gn.github.io/Aplicacion_inventario](https://paco4gn.github.io/Aplicacion_inventario/). GitHub Pages conserva ese punto de entrada y abre el servicio que ejecuta la interfaz, la API y D1.
+La dirección estable es [paco4gn.github.io/Aplicacion_inventario](https://paco4gn.github.io/Aplicacion_inventario/). La interfaz se compila y publica directamente en GitHub Pages. La API y D1 se ejecutan en el servicio de datos porque GitHub Pages solo admite archivos estáticos.
+
+El panel solicita una clave de acceso y la conserva únicamente durante la sesión del navegador. GitHub no recibe ni almacena esa clave. La API acepta peticiones del origen `https://paco4gn.github.io` y protege los datos administrativos mediante `INVENTORY_WEB_TOKEN`.
 
 La migración inicial conserva los registros del proyecto anterior mediante una importación privada durante el despliegue. Los datos del inventario y sus copias de seguridad no se guardan en este repositorio público.
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ClipboardList, Download, CalendarRange, Upload } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, apiRequest } from '../lib/api';
 import { exportCSV } from '../lib/csv';
 import { useToast } from '../contexts/ToastContext';
 import { SearchInput } from '../components/ui/SearchInput';
@@ -89,7 +89,7 @@ export function AuditLog() {
   async function downloadBackup() {
     setBackupBusy(true);
     try {
-      const response = await fetch('/api/admin/backup');
+      const response = await apiRequest('/api/admin/backup');
       if (!response.ok) throw new Error();
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -111,7 +111,7 @@ export function AuditLog() {
     try {
       const payload = JSON.parse(await file.text()) as { format?: string; tables?: Record<string, unknown> };
       if (payload.format !== 'it-inventario-backup-v1' || !payload.tables) throw new Error('Formato no válido');
-      const response = await fetch('/api/admin/backup', {
+      const response = await apiRequest('/api/admin/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
