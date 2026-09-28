@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { Plus, Pencil, Trash2, Monitor, Eye, Download, Upload, QrCode, History, CheckSquare, Square, X, ShieldAlert, ShieldCheck, ShieldOff, Printer, Laptop, Server, Keyboard, Mouse, Package } from 'lucide-react';
+import { Plus, Pencil, Trash2, Monitor, Eye, Download, Upload, QrCode, History, CheckSquare, Square, X, ShieldAlert, ShieldCheck, ShieldOff, Printer, Laptop, Server, Keyboard, Mouse, Package, FileSignature, MapPin } from 'lucide-react';
 import { api } from '../lib/api';
 import { logAction } from '../lib/audit';
 import { exportCSV, parseCSV } from '../lib/csv';
@@ -206,16 +206,26 @@ function daysUntil(date: string | null): number | null {
 }
 
 interface HistoryEntry {
-  type: 'assignment' | 'incident';
+  type: 'assignment' | 'incident' | 'license' | 'component' | 'audit';
   date: string;
   label: string;
   sublabel: string;
   badge: React.ReactNode;
 }
 
+interface ImportPreviewRow {
+  row: number;
+  serial_number: string;
+  action: 'create' | 'update' | 'error';
+  error?: string;
+  payload: Partial<Asset>;
+}
+
 export function Assets() {
   const { showToast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
+  const signatureRef = useRef<HTMLCanvasElement>(null);
+  const signatureDrawingRef = useRef(false);
 
 
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -235,15 +245,23 @@ export function Assets() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
 
   const [editing, setEditing] = useState<Partial<Asset>>(emptyAsset);
   const [selected, setSelected] = useState<Asset | null>(null);
   const [assignEmployeeId, setAssignEmployeeId] = useState('');
   const [assignWithPeripherals, setAssignWithPeripherals] = useState(true);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
+  const [importPreview, setImportPreview] = useState<ImportPreviewRow[]>([]);
+  const [importBusy, setImportBusy] = useState(false);
+  const [receiptNotes, setReceiptNotes] = useState('');
+  const [deliveredBy, setDeliveredBy] = useState('Departamento de IT');
+  const [signatureHasInk, setSignatureHasInk] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<Asset['status']>('active');
+  const [bulkLocation, setBulkLocation] = useState('');
 
   async function load() {
     const [{ data: a }, { data: e }, { data: asgn }] = await Promise.all([
@@ -401,6 +419,18 @@ export function Assets() {
     load();
   }
 
+  async function bulkUpdateLocation() {
+    const location = bulkLocation.trim();
+    if (!location) { showToast('Indica una ubicación', 'error'); return; }
+    const ids = Array.from(selectedIds);
+    const { error } = await api.from('assets').update({ location, updated_at: new Date().toISOString() }).in('id', ids);
+    if (error) { showToast('No se pudo cambiar la ubicación', 'error'); return; }
+    showToast(`Ubicación actualizada en ${ids.length} activos`);
+    setBulkLocation('');
+    clearSelection();
+    load();
+  }
+
   async function assign() {
     if (!selected) return;
     const assetIds = assignWithPeripherals && isComputerAsset(selected.asset_type)
@@ -427,9 +457,12 @@ export function Assets() {
 
   async function openHistory(asset: Asset) {
     setSelected(asset);
-    const [{ data: asgns }, { data: incs }] = await Promise.all([
+    const [{ data: asgns }, { data: incs }, { data: licenseUses }, { data: movements }, { data: audits }] = await Promise.all([
       api.from('asset_assignments').select('*, employee:employees(name)').eq('asset_id', asset.id).order('assigned_at', { ascending: false }),
       api.from('incidents').select('*').eq('asset_id', asset.id).order('opened_at', { ascending: false }),
+      api.from('license_assignments').select('*').eq('asset_id', asset.id).order('assigned_at', { ascending: false }),
+      api.from('component_movements').select('*, component:components(name)').eq('asset_id', asset.id).order('moved_at', { ascending: false }),
+      api.from('audit_logs').select('*').eq('entity_id', asset.id).order('created_at', { ascending: false }).limit(100),
     ]);
     const entries: HistoryEntry[] = [
       ...(asgns ?? []).map((a: AssetAssignment) => ({
@@ -449,9 +482,85 @@ export function Assets() {
           : i.status === 'in_progress' ? <Badge variant="warning">En Progreso</Badge>
           : <Badge variant="danger">Abierta</Badge>,
       })),
+      ...(licenseUses ?? []).map((item: { assigned_at: string; returned_at?: string | null; notes?: string | null }) => ({
+        type: 'license' as const, date: item.assigned_at, label: 'Licencia de software asignada', sublabel: item.notes || (item.returned_at ? 'Asignación finalizada' : 'Asignación vigente'), badge: <Badge variant={item.returned_at ? 'neutral' : 'info'}>{item.returned_at ? 'Devuelta' : 'Licencia'}</Badge>,
+      })),
+      ...(movements ?? []).map((item: { moved_at: string; movement_type: string; quantity: number; reason?: string | null; component?: { name?: string } | null }) => ({
+        type: 'component' as const, date: item.moved_at, label: item.component?.name || 'Componente', sublabel: `${item.movement_type}: ${item.quantity}${item.reason ? ` · ${item.reason}` : ''}`, badge: <Badge variant="warning">Componente</Badge>,
+      })),
+      ...(audits ?? []).map((item: { created_at: string; action: string; performed_by?: string | null; details?: unknown }) => ({
+        type: 'audit' as const, date: item.created_at, label: `Cambio: ${item.action}`, sublabel: `${item.performed_by || 'Sistema'}${item.details ? ` · ${JSON.stringify(item.details)}` : ''}`, badge: <Badge variant="neutral">Auditoría</Badge>,
+      })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setHistoryEntries(entries);
     setHistoryOpen(true);
+  }
+
+  function openReceipt(asset: Asset) {
+    if (!currentEmployee(asset.id)) { showToast('Asigna primero el activo a un empleado', 'error'); return; }
+    setSelected(asset);
+    setReceiptNotes('');
+    setSignatureHasInk(false);
+    setReceiptOpen(true);
+    window.setTimeout(() => signatureRef.current?.getContext('2d')?.clearRect(0, 0, 900, 220), 0);
+  }
+
+  function signaturePoint(event: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = signatureRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return { x: (event.clientX - rect.left) * (canvas.width / rect.width), y: (event.clientY - rect.top) * (canvas.height / rect.height) };
+  }
+
+  function beginSignature(event: React.PointerEvent<HTMLCanvasElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const ctx = signatureRef.current?.getContext('2d');
+    if (!ctx) return;
+    const point = signaturePoint(event);
+    ctx.beginPath(); ctx.moveTo(point.x, point.y); ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#0f172a';
+    signatureDrawingRef.current = true;
+  }
+
+  function drawSignature(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (!signatureDrawingRef.current) return;
+    const ctx = signatureRef.current?.getContext('2d');
+    if (!ctx) return;
+    const point = signaturePoint(event); ctx.lineTo(point.x, point.y); ctx.stroke(); setSignatureHasInk(true);
+  }
+
+  function clearSignature() {
+    const canvas = signatureRef.current;
+    canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+    setSignatureHasInk(false);
+  }
+
+  async function generateReceipt() {
+    if (!selected) return;
+    const employee = currentEmployee(selected.id);
+    if (!employee) return;
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF();
+    doc.setFillColor(23, 59, 112); doc.rect(0, 0, 210, 30, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFontSize(18); doc.text('ACTA DE ENTREGA DE EQUIPO', 16, 19);
+    doc.setTextColor(15, 23, 42); doc.setFontSize(11);
+    const assignment = currentAssignment(selected.id);
+    const lines = [
+      ['Empleado', employee.name], ['Email', employee.email || '—'], ['Departamento', employee.department || '—'],
+      ['Activo', `${selected.serial_number} · ${selected.name || selected.asset_type}`], ['Marca / modelo', `${selected.brand || '—'} ${selected.model || ''}`],
+      ['Ubicación', selected.location || '—'], ['Fecha de entrega', assignment?.assigned_at ? new Date(assignment.assigned_at).toLocaleDateString('es-ES') : new Date().toLocaleDateString('es-ES')],
+      ['Entregado por', deliveredBy.trim() || 'Departamento de IT'],
+    ];
+    let y = 43;
+    for (const [label, value] of lines) { doc.setFont('helvetica', 'bold'); doc.text(`${label}:`, 16, y); doc.setFont('helvetica', 'normal'); doc.text(String(value), 55, y); y += 9; }
+    doc.setFont('helvetica', 'bold'); doc.text('Observaciones:', 16, y + 3); doc.setFont('helvetica', 'normal');
+    doc.text(doc.splitTextToSize(receiptNotes.trim() || 'El empleado recibe el equipo indicado en buen estado y se compromete a utilizarlo de acuerdo con las normas de la organización.', 178), 16, y + 11);
+    doc.setDrawColor(148, 163, 184); doc.line(16, 215, 92, 215); doc.line(118, 215, 194, 215);
+    doc.text('Firma del empleado', 16, 222); doc.text('Responsable de entrega', 118, 222);
+    if (signatureHasInk && signatureRef.current) doc.addImage(signatureRef.current.toDataURL('image/png'), 'PNG', 20, 170, 68, 38);
+    doc.setFontSize(8); doc.setTextColor(100, 116, 139); doc.text(`Documento generado por IT Inventario FEVAL · ${new Date().toLocaleString('es-ES')}`, 16, 282);
+    doc.save(`acta-entrega-${selected.serial_number}.pdf`);
+    await logAction('delivery_receipt', 'asset', selected.id, selected.serial_number, { employee: employee.name, signed: signatureHasInk });
+    showToast('Acta PDF generada');
+    setReceiptOpen(false);
   }
 
   function handlePrint() {
@@ -637,7 +746,10 @@ ${warrantyWarning}${eolWarning}
     const text = await file.text();
     const rows = parseCSV(text);
     if (!rows.length) { showToast('CSV vacío o inválido', 'error'); return; }
-    const toInsert = rows.map(r => ({
+    const seen = new Set<string>();
+    const existing = new Set(assets.map(asset => asset.serial_number.toLowerCase()));
+    const preview: ImportPreviewRow[] = rows.map((r, index) => {
+      const payload: Partial<Asset> = {
       serial_number: r['Nº Serie'] || r['serial_number'] || '',
       name: r['Nombre'] || r['name'] || r['Nº Serie'] || r['serial_number'] || '',
       asset_type: normalizeAssetType(r['Tipo'] || r['asset_type'] || 'Other'),
@@ -665,13 +777,34 @@ ${warrantyWarning}${eolWarning}
       sim_number: r['Número SIM'] || r['Nº SIM'] || r['sim_number'] || '',
       image_url: r['URL imagen'] || r['image_url'] || '',
       notes: r['Notas'] || r['notes'] || '',
-    })).filter(r => r.serial_number);
-    if (!toInsert.length) { showToast('No se encontraron filas válidas (columna "Nº Serie" requerida)', 'error'); return; }
-    const { error } = await api.from('assets').upsert(toInsert, { onConflict: 'serial_number' });
-    if (error) { showToast('Error en importación: ' + error.message, 'error'); return; }
-    showToast(`${toInsert.length} activos importados/actualizados`);
-    load();
+      };
+      const serial = String(payload.serial_number || '').trim();
+      payload.serial_number = serial;
+      if (!serial) return { row: index + 2, serial_number: '', action: 'error', error: 'Falta Nº Serie', payload };
+      const key = serial.toLowerCase();
+      if (seen.has(key)) return { row: index + 2, serial_number: serial, action: 'error', error: 'Nº Serie repetido en el archivo', payload };
+      seen.add(key);
+      return { row: index + 2, serial_number: serial, action: existing.has(key) ? 'update' : 'create', payload };
+    });
+    setImportPreview(preview);
+    setImportOpen(true);
     if (fileRef.current) fileRef.current.value = '';
+  }
+
+  async function confirmImport() {
+    const valid = importPreview.filter(row => row.action !== 'error');
+    if (!valid.length) { showToast('No hay filas válidas para importar', 'error'); return; }
+    setImportBusy(true);
+    const { error } = await api.from('assets').upsert(valid.map(row => row.payload), { onConflict: 'serial_number' });
+    setImportBusy(false);
+    if (error) { showToast('Error en importación: ' + error.message, 'error'); return; }
+    const created = valid.filter(row => row.action === 'create').length;
+    const updated = valid.length - created;
+    await logAction('imported', 'asset', '', `${valid.length} activos`, { created, updated });
+    showToast(`${created} creados y ${updated} actualizados`);
+    setImportOpen(false);
+    setImportPreview([]);
+    load();
   }
 
   const qrAsset = selected;
@@ -685,13 +818,18 @@ ${warrantyWarning}${eolWarning}
       <div className="p-6 space-y-4">
         {/* Bulk action bar */}
         {selectedIds.size > 0 && (
-          <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5">
             <span className="text-sm font-medium text-blue-800">{selectedIds.size} seleccionado{selectedIds.size > 1 ? 's' : ''}</span>
             <div className="flex items-center gap-2 ml-auto">
               <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value as Asset['status'])} className="text-sm border border-blue-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:outline-none">
                 {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
               <button onClick={bulkUpdateStatus} className="text-sm font-medium px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">Cambiar estado</button>
+              <div className="flex items-center rounded-lg border border-blue-200 bg-white overflow-hidden">
+                <MapPin size={14} className="ml-2 text-blue-500" />
+                <input value={bulkLocation} onChange={e => setBulkLocation(e.target.value)} placeholder="Nueva ubicación" className="w-36 px-2 py-1.5 text-sm outline-none" />
+                <button onClick={bulkUpdateLocation} className="px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100">Aplicar</button>
+              </div>
               <button onClick={() => setBulkDeleteOpen(true)} className="text-sm font-medium px-3 py-1.5 bg-white hover:bg-red-50 text-red-600 border border-red-200 rounded-lg transition-colors">Eliminar</button>
               <button onClick={clearSelection} className="p-1.5 rounded-lg hover:bg-blue-100 text-blue-500 transition-colors"><X size={15} /></button>
             </div>
@@ -795,6 +933,7 @@ ${warrantyWarning}${eolWarning}
                             <div className="flex items-center gap-1 justify-end">
                               <button onClick={() => { setSelected(a); setAssignEmployeeId(currentEmployee(a.id)?.id ?? 'none'); setAssignWithPeripherals(true); setDetailOpen(true); }} className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors" title="Asignar"><Eye size={15} /></button>
                               <button onClick={() => openHistory(a)} className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-600 transition-colors" title="Historial"><History size={15} /></button>
+                              <button onClick={() => openReceipt(a)} className="p-1.5 rounded-lg hover:bg-violet-50 text-gray-400 hover:text-violet-600 transition-colors" title="Acta de entrega PDF"><FileSignature size={15} /></button>
                               <button onClick={() => { setSelected(a); setQrOpen(true); }} className="p-1.5 rounded-lg hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition-colors" title="Código QR"><QrCode size={15} /></button>
                               <button onClick={() => { setEditing({ ...a }); setModalOpen(true); }} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors" title="Editar"><Pencil size={15} /></button>
                               <button onClick={() => { setSelected(a); setDeleteOpen(true); }} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors" title="Eliminar"><Trash2 size={15} /></button>
@@ -1021,18 +1160,47 @@ ${warrantyWarning}${eolWarning}
               <p className="text-center text-gray-400 py-8">Sin historial registrado</p>
             ) : historyEntries.map((entry, i) => (
               <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors">
-                <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${entry.type === 'assignment' ? 'bg-blue-400' : 'bg-amber-400'}`} />
+                <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${entry.type === 'assignment' ? 'bg-blue-400' : entry.type === 'incident' ? 'bg-amber-400' : entry.type === 'license' ? 'bg-violet-400' : entry.type === 'component' ? 'bg-orange-400' : 'bg-gray-400'}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-medium text-gray-800 truncate">{entry.label}</span>
                     {entry.badge}
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5">{entry.sublabel}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{entry.type === 'assignment' ? 'Asignacion' : 'Incidencia'} · {new Date(entry.date).toLocaleDateString('es-ES')}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{{ assignment: 'Asignación', incident: 'Incidencia', license: 'Licencia', component: 'Componente', audit: 'Auditoría' }[entry.type]} · {new Date(entry.date).toLocaleString('es-ES')}</p>
                 </div>
               </div>
             ))}
           </div>
+        </Modal>
+
+        <Modal open={importOpen} onClose={() => setImportOpen(false)} title="Vista previa de importación" size="lg">
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xl font-bold text-emerald-700">{importPreview.filter(row => row.action === 'create').length}</p><p className="text-xs text-emerald-600">Nuevos</p></div>
+              <div className="rounded-xl bg-blue-50 p-3"><p className="text-xl font-bold text-blue-700">{importPreview.filter(row => row.action === 'update').length}</p><p className="text-xs text-blue-600">Actualizaciones</p></div>
+              <div className="rounded-xl bg-red-50 p-3"><p className="text-xl font-bold text-red-700">{importPreview.filter(row => row.action === 'error').length}</p><p className="text-xs text-red-600">Errores omitidos</p></div>
+            </div>
+            <div className="max-h-72 overflow-auto border border-gray-100 rounded-xl">
+              <table className="w-full text-sm"><thead className="sticky top-0 bg-gray-50"><tr><th className="text-left p-2">Fila</th><th className="text-left p-2">Nº serie</th><th className="text-left p-2">Nombre</th><th className="text-left p-2">Resultado</th></tr></thead>
+                <tbody>{importPreview.slice(0, 100).map(row => <tr key={row.row} className="border-t border-gray-100"><td className="p-2 text-gray-400">{row.row}</td><td className="p-2 font-mono">{row.serial_number || '—'}</td><td className="p-2">{row.payload.name || '—'}</td><td className="p-2">{row.action === 'create' ? <Badge variant="success">Crear</Badge> : row.action === 'update' ? <Badge variant="info">Actualizar</Badge> : <span className="text-xs text-red-600">{row.error}</span>}</td></tr>)}</tbody>
+              </table>
+            </div>
+            {importPreview.length > 100 && <p className="text-xs text-gray-400">Se muestran las primeras 100 filas.</p>}
+            <div className="flex justify-end gap-2"><button onClick={() => setImportOpen(false)} className="btn-secondary">Cancelar</button><button onClick={confirmImport} disabled={importBusy || importPreview.every(row => row.action === 'error')} className="btn-primary disabled:opacity-50">{importBusy ? 'Importando…' : 'Confirmar importación'}</button></div>
+          </div>
+        </Modal>
+
+        <Modal open={receiptOpen} onClose={() => setReceiptOpen(false)} title={`Acta de entrega: ${selected?.serial_number}`} size="lg">
+          {selected && currentEmployee(selected.id) && <div className="space-y-4">
+            <div className="rounded-xl bg-blue-50 border border-blue-100 p-4 text-sm"><p className="font-semibold text-blue-900">{currentEmployee(selected.id)?.name}</p><p className="text-blue-700">{selected.serial_number} · {selected.brand} {selected.model}</p></div>
+            <FormField label="Entregado por"><input value={deliveredBy} onChange={e => setDeliveredBy(e.target.value)} className="input" /></FormField>
+            <FormField label="Observaciones"><textarea value={receiptNotes} onChange={e => setReceiptNotes(e.target.value)} className="input min-h-20" placeholder="Estado del equipo, accesorios entregados, condiciones…" /></FormField>
+            <div><div className="mb-1 flex items-center justify-between"><label className="text-xs font-medium text-gray-500">Firma del empleado</label><button onClick={clearSignature} className="text-xs text-blue-600 hover:underline">Borrar firma</button></div>
+              <canvas ref={signatureRef} width={900} height={220} onPointerDown={beginSignature} onPointerMove={drawSignature} onPointerUp={() => { signatureDrawingRef.current = false; }} onPointerCancel={() => { signatureDrawingRef.current = false; }} className="w-full h-40 rounded-xl border border-dashed border-gray-300 bg-white touch-none" />
+            </div>
+            <div className="flex justify-end gap-2"><button onClick={() => setReceiptOpen(false)} className="btn-secondary">Cancelar</button><button onClick={generateReceipt} className="btn-primary flex items-center gap-2"><FileSignature size={15} /> Generar PDF</button></div>
+          </div>}
         </Modal>
 
         {/* QR modal — rich card */}
@@ -1137,8 +1305,8 @@ ${warrantyWarning}${eolWarning}
           )}
         </Modal>
 
-        <ConfirmDialog open={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={deleteAsset} title="Eliminar Activo" message={`¿Eliminar el activo ${selected?.serial_number}? Esta accion no se puede deshacer.`} confirmLabel="Eliminar" danger />
-        <ConfirmDialog open={bulkDeleteOpen} onClose={() => setBulkDeleteOpen(false)} onConfirm={bulkDelete} title="Eliminar Activos" message={`¿Eliminar ${selectedIds.size} activos seleccionados? Esta accion no se puede deshacer.`} confirmLabel={`Eliminar ${selectedIds.size}`} danger />
+        <ConfirmDialog open={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={deleteAsset} title="Eliminar Activo" message={`¿Mover el activo ${selected?.serial_number} a la papelera? Podrás restaurarlo desde Administración.`} confirmLabel="Mover a papelera" danger />
+        <ConfirmDialog open={bulkDeleteOpen} onClose={() => setBulkDeleteOpen(false)} onConfirm={bulkDelete} title="Eliminar Activos" message={`¿Mover ${selectedIds.size} activos seleccionados a la papelera? Podrás restaurarlos después.`} confirmLabel={`Mover ${selectedIds.size}`} danger />
       </div>
     </>
   );

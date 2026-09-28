@@ -8,11 +8,11 @@ import {
   ClipboardList,
   ChevronLeft,
   Cpu,
+  Settings,
+  Trash2,
 } from 'lucide-react';
-import { useApp } from '../../contexts/AppContext';
+import { useApp, type Page } from '../../contexts/AppContext';
 import { useAlertCounts } from '../../hooks/useAlertCounts';
-
-type Page = 'dashboard' | 'assets' | 'employees' | 'incidents' | 'software' | 'components' | 'audit';
 
 interface NavItem {
   id: Page;
@@ -22,7 +22,7 @@ interface NavItem {
 }
 
 export function Sidebar() {
-  const { currentPage, setCurrentPage, sidebarOpen, setSidebarOpen } = useApp();
+  const { currentPage, setCurrentPage, sidebarOpen, setSidebarOpen, currentUser } = useApp();
   const alerts = useAlertCounts();
 
   const navItems: NavItem[] = [
@@ -32,7 +32,11 @@ export function Sidebar() {
     { id: 'incidents', label: 'Incidencias', icon: AlertTriangle, badge: alerts.openIncidents },
     { id: 'software', label: 'Software & Licencias', icon: BookOpen, badge: alerts.expiringLicenses },
     { id: 'components', label: 'Componentes', icon: Package, badge: alerts.lowStock },
-    { id: 'audit', label: 'Auditoría', icon: ClipboardList },
+    ...(currentUser.role === 'admin' ? [
+      { id: 'audit' as const, label: 'Auditoría', icon: ClipboardList },
+      { id: 'recycle' as const, label: 'Papelera', icon: Trash2 },
+      { id: 'administration' as const, label: 'Administración', icon: Settings },
+    ] : []),
   ];
 
   return (

@@ -3,12 +3,14 @@ import { api } from '../lib/api';
 
 interface AlertCounts {
   openIncidents: number;
+  overdueIncidents: number;
   expiringLicenses: number;
+  expiringWarranties: number;
   lowStock: number;
 }
 
 export function useAlertCounts() {
-  const [counts, setCounts] = useState<AlertCounts>({ openIncidents: 0, expiringLicenses: 0, lowStock: 0 });
+  const [counts, setCounts] = useState<AlertCounts>({ openIncidents: 0, overdueIncidents: 0, expiringLicenses: 0, expiringWarranties: 0, lowStock: 0 });
 
   useEffect(() => {
     async function load() {
@@ -18,15 +20,18 @@ export function useAlertCounts() {
       const today = new Date().toISOString().slice(0, 10);
       const in30str = in30.toISOString().slice(0, 10);
 
-      const [{ count: incidents }, { data: licenses }, { data: components }] = await Promise.all([
-        api.from('incidents').select('id', { count: 'exact', head: true }).in('status', ['open', 'assigned', 'in_progress', 'waiting_user']),
+      const [{ data: incidents }, { data: licenses }, { data: assets }, { data: components }] = await Promise.all([
+        api.from('incidents').select('status,due_at').in('status', ['open', 'assigned', 'in_progress', 'waiting_user']),
         api.from('licenses').select('expiry_date').not('expiry_date', 'is', null).gte('expiry_date', today).lte('expiry_date', in30str),
+        api.from('assets').select('warranty_expiry').not('warranty_expiry', 'is', null).gte('warranty_expiry', today).lte('warranty_expiry', in30str),
         api.from('components').select('stock, min_stock'),
       ]);
 
       setCounts({
-        openIncidents: incidents ?? 0,
+        openIncidents: (incidents ?? []).length,
+        overdueIncidents: (incidents ?? []).filter((item: { due_at?: string | null }) => item.due_at && item.due_at.slice(0, 10) < today).length,
         expiringLicenses: (licenses ?? []).length,
+        expiringWarranties: (assets ?? []).length,
         lowStock: (components ?? []).filter((c: { stock: number; min_stock: number }) => c.stock <= c.min_stock).length,
       });
     }

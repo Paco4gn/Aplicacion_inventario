@@ -8,7 +8,7 @@ La aplicación usa React y TypeScript en la interfaz, Cloudflare Workers para la
 
 La dirección estable es [paco4gn.github.io/Aplicacion_inventario](https://paco4gn.github.io/Aplicacion_inventario/). La interfaz se compila y publica directamente en GitHub Pages. La API y D1 se ejecutan en el servicio de datos porque GitHub Pages solo admite archivos estáticos.
 
-El panel solicita una clave de acceso y la conserva únicamente durante la sesión del navegador. GitHub no recibe ni almacena esa clave. La API acepta peticiones del origen `https://paco4gn.github.io` y protege los datos administrativos mediante `INVENTORY_WEB_TOKEN`.
+El panel solicita una clave de acceso y la conserva únicamente durante la sesión del navegador. GitHub no recibe ni almacena esa clave. La API acepta peticiones del origen `https://paco4gn.github.io` y protege los datos administrativos mediante claves individuales con perfiles de administrador, técnico y solo consulta.
 
 La migración inicial conserva los registros del proyecto anterior mediante una importación privada durante el despliegue. Los datos del inventario y sus copias de seguridad no se guardan en este repositorio público.
 
@@ -37,7 +37,9 @@ npm run build
 
 La definición de las tablas está en `db/schema.ts` y las migraciones generadas están en `drizzle/`.
 
-Desde **Auditoría** se puede descargar una copia JSON completa o restaurar una copia anterior. El archivo incluye todos los módulos y conserva identificadores y relaciones.
+Desde **Administración** se gestionan los usuarios y las copias diarias. La papelera permite restaurar registros con sus relaciones. El dashboard genera un Excel real con hojas para activos, empleados, asignaciones, incidencias, licencias, componentes, movimientos y auditoría.
+
+La pantalla de activos permite previsualizar una importación CSV antes de aplicarla, cambiar estado o ubicación por lotes, consultar el historial completo, imprimir etiquetas QR y generar actas de entrega PDF con firma. La aplicación también se puede instalar como PWA en ordenadores y móviles.
 
 ## Inventario automático de equipos Windows
 

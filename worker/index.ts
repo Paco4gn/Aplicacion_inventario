@@ -21,6 +21,8 @@ interface AppEnv extends Env {
 type TableName = keyof typeof tableDefinitions;
 type DataRecord = Record<string, unknown>;
 type Filter = { type: string; column?: string; value: unknown };
+type UserRole = 'admin' | 'technician' | 'viewer';
+type AuthUser = { id: string; email: string; name: string; role: UserRole };
 
 const tableDefinitions = {
   employees: {
@@ -102,19 +104,31 @@ function json(data: unknown, status = 200, headers: HeadersInit = {}) {
 
 async function getUser(request: Request, env: AppEnv) {
   const url = new URL(request.url);
-  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
-    return { id: 'local-development', email: 'desarrollo@local' };
-  }
   const supplied = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') ?? '';
-  if (env.INVENTORY_WEB_TOKEN) {
-    return supplied && await safeEqual(supplied, env.INVENTORY_WEB_TOKEN)
-      ? { id: 'github-pages-user', email: 'inventario@github-pages' }
-      : null;
+  if ((url.hostname === 'localhost' || url.hostname === '127.0.0.1') && !supplied) {
+    return { id: 'local-development', email: 'desarrollo@local', name: 'Desarrollo local', role: 'admin' } satisfies AuthUser;
   }
+  if (!supplied || supplied.length > 300) return null;
+  if (env.INVENTORY_WEB_TOKEN && await safeEqual(supplied, env.INVENTORY_WEB_TOKEN)) {
+    return { id: 'system-admin', email: 'inventario@github-pages', name: 'Administrador principal', role: 'admin' } satisfies AuthUser;
+  }
+  const tokenHash = await hashToken(supplied);
+  const user = await env.DB.prepare('SELECT id, email, name, role FROM app_users WHERE token_hash = ? AND active = 1 LIMIT 1')
+    .bind(tokenHash)
+    .first<{ id: string; email: string; name: string; role: string }>();
+  if (user && ['admin', 'technician', 'viewer'].includes(user.role)) return user as AuthUser;
   const id = request.headers.get('oai-authenticated-user-id') ?? request.headers.get('x-openai-authenticated-user-id');
   const email = request.headers.get('oai-authenticated-user-email') ?? request.headers.get('x-openai-authenticated-user-email');
-  if (id || email) return { id: id ?? email ?? 'user', email: email ?? '' };
+  if (id || email) return { id: id ?? email ?? 'user', email: email ?? '', name: email ?? 'Usuario', role: 'admin' } satisfies AuthUser;
   return null;
+}
+
+function actorLabel(user: AuthUser) {
+  return user.email || user.name || user.id;
+}
+
+function requireRole(user: AuthUser | null, roles: UserRole[]) {
+  return Boolean(user && roles.includes(user.role));
 }
 
 function corsHeaders(request: Request, env: AppEnv) {
@@ -348,7 +362,73 @@ async function insertRows(db: D1Database, table: TableName, source: unknown, onC
   return rowsByIds(db, table, items.map((item) => item.id)).then((map) => items.map((item) => map.get(String(item.id))!).filter(Boolean));
 }
 
-async function mutateRows(db: D1Database, table: TableName, payload: DataRecord) {
+async function queryAll(db: D1Database, sql: string, ...bindings: unknown[]) {
+  const result = await db.prepare(sql).bind(...bindings).all<DataRecord>();
+  return result.results ?? [];
+}
+
+function recycleDisplayName(table: TableName, record: DataRecord) {
+  if (table === 'assets') return String(record.serial_number ?? record.name ?? record.id);
+  if (table === 'employees' || table === 'software' || table === 'components') return String(record.name ?? record.id);
+  if (table === 'incidents') return String(record.title ?? record.id);
+  if (table === 'licenses') return String(record.license_key ?? record.id);
+  if (table === 'incident_notification_recipients') return String(record.email ?? record.id);
+  return String(record.entity_name ?? record.id);
+}
+
+async function recycleRelatedRows(db: D1Database, table: TableName, id: string) {
+  const related: Record<string, DataRecord[]> = {};
+  if (table === 'assets') {
+    related.asset_assignments = await queryAll(db, 'SELECT * FROM asset_assignments WHERE asset_id = ?', id);
+    related.incidents = await queryAll(db, 'SELECT * FROM incidents WHERE asset_id = ?', id);
+    related.license_assignments = await queryAll(db, 'SELECT * FROM license_assignments WHERE asset_id = ?', id);
+    related.component_movements = await queryAll(db, 'SELECT * FROM component_movements WHERE asset_id = ?', id);
+    related.assets = await queryAll(db, 'SELECT * FROM assets WHERE parent_asset_id = ?', id);
+  } else if (table === 'employees') {
+    related.asset_assignments = await queryAll(db, 'SELECT * FROM asset_assignments WHERE employee_id = ?', id);
+    related.incidents = await queryAll(db, 'SELECT * FROM incidents WHERE employee_id = ? OR assigned_to_id = ?', id, id);
+    related.license_assignments = await queryAll(db, 'SELECT * FROM license_assignments WHERE employee_id = ?', id);
+  } else if (table === 'incidents') {
+    related.incident_comments = await queryAll(db, 'SELECT * FROM incident_comments WHERE incident_id = ?', id);
+  } else if (table === 'software') {
+    related.licenses = await queryAll(db, 'SELECT * FROM licenses WHERE software_id = ?', id);
+    const licenseIds = related.licenses.map((row) => String(row.id));
+    if (licenseIds.length) {
+      related.license_assignments = await queryAll(
+        db,
+        `SELECT * FROM license_assignments WHERE license_id IN (${licenseIds.map(() => '?').join(', ')})`,
+        ...licenseIds,
+      );
+    }
+  } else if (table === 'licenses') {
+    related.license_assignments = await queryAll(db, 'SELECT * FROM license_assignments WHERE license_id = ?', id);
+  } else if (table === 'components') {
+    related.component_movements = await queryAll(db, 'SELECT * FROM component_movements WHERE component_id = ?', id);
+  }
+  return related;
+}
+
+async function archiveDeletedRows(db: D1Database, table: TableName, ids: string[], deletedBy: string) {
+  for (const id of ids) {
+    const record = await db.prepare(`SELECT * FROM "${table}" WHERE id = ?`).bind(id).first<DataRecord>();
+    if (!record) continue;
+    const related = await recycleRelatedRows(db, table, id);
+    await db.prepare(`INSERT INTO recycle_bin (id, table_name, record_id, display_name, record_json, deleted_by, deleted_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(
+        crypto.randomUUID(),
+        table,
+        id,
+        recycleDisplayName(table, record),
+        JSON.stringify({ record, related }),
+        deletedBy,
+        new Date().toISOString(),
+      )
+      .run();
+  }
+}
+
+async function mutateRows(db: D1Database, table: TableName, payload: DataRecord, deletedBy = 'system') {
   const action = String(payload.action ?? 'select');
   if (action === 'insert' || action === 'upsert') {
     return insertRows(db, table, payload.values, action === 'upsert' ? String(payload.onConflict ?? '') : undefined);
@@ -368,6 +448,7 @@ async function mutateRows(db: D1Database, table: TableName, payload: DataRecord)
     const selected = await db.prepare(`SELECT id FROM "${table}"${where.sql}`).bind(...where.bindings).all<{ id: string }>();
     const ids = (selected.results ?? []).map((row) => row.id);
     if (ids.length === 0) return [];
+    await archiveDeletedRows(db, table, ids, deletedBy);
     const placeholders = ids.map(() => '?').join(', ');
     const cleanup: D1PreparedStatement[] = [];
     if (table === 'assets') {
@@ -408,7 +489,8 @@ async function mutateRows(db: D1Database, table: TableName, payload: DataRecord)
 }
 
 async function handleDataApi(request: Request, env: AppEnv, tableValue: string) {
-  if (!await getUser(request, env)) return json({ error: { message: 'Inicia sesión para acceder al inventario' } }, 401);
+  const user = await getUser(request, env);
+  if (!user) return json({ error: { message: 'Inicia sesión para acceder al inventario' } }, 401);
   if (!isTableName(tableValue)) return json({ error: { message: 'Recurso no válido' } }, 404);
   if (request.method !== 'POST') return json({ error: { message: 'Método no permitido' } }, 405);
   const payload = await request.json<DataRecord>();
@@ -417,7 +499,8 @@ async function handleDataApi(request: Request, env: AppEnv, tableValue: string) 
     const { rows, count } = await selectRows(env.DB, tableValue, payload);
     return json({ data: payload.maybeSingle ? rows[0] ?? null : payload.head ? null : rows, count, error: null });
   }
-  const rows = await mutateRows(env.DB, tableValue, payload);
+  if (!requireRole(user, ['admin', 'technician'])) return json({ error: { message: 'Tu perfil es de solo lectura' } }, 403);
+  const rows = await mutateRows(env.DB, tableValue, payload, actorLabel(user));
   if (payload.returning === true && rows.length) {
     await expandRelations(env.DB, tableValue, String(payload.select ?? '*'), rows);
   }
@@ -432,6 +515,11 @@ async function safeEqual(left: string, right: string) {
   ]);
   const subtle = crypto.subtle as SubtleCrypto & { timingSafeEqual(a: ArrayBuffer, b: ArrayBuffer): boolean };
   return subtle.timingSafeEqual(leftHash, rightHash);
+}
+
+async function hashToken(value: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 async function addAudit(db: D1Database, values: DataRecord) {
@@ -599,39 +687,222 @@ const migrationOrder: TableName[] = [
   'incident_comments', 'incident_notification_recipients', 'audit_logs',
 ];
 
-async function handleBackup(request: Request, env: AppEnv) {
-  if (!await getUser(request, env)) return json({ error: 'unauthenticated' }, 401);
-  if (request.method === 'GET') {
-    const tables: Record<string, DataRecord[]> = {};
-    for (const table of migrationOrder) {
-      const result = await env.DB.prepare(`SELECT * FROM "${table}"`).all<DataRecord>();
-      tables[table] = (result.results ?? []).map((row) => decodeRecord(table, row));
+async function createBackupPayload(db: D1Database) {
+  const tables: Record<string, DataRecord[]> = {};
+  for (const table of migrationOrder) {
+    const result = await db.prepare(`SELECT * FROM "${table}"`).all<DataRecord>();
+    tables[table] = (result.results ?? []).map((row) => decodeRecord(table, row));
+  }
+  return { format: 'it-inventario-backup-v1', exported_at: new Date().toISOString(), tables };
+}
+
+async function restoreBackupPayload(db: D1Database, tables: Record<string, unknown>) {
+  const imported: Record<string, number> = {};
+  for (const table of migrationOrder) {
+    const values = tables[table];
+    if (!Array.isArray(values) || values.length === 0) {
+      imported[table] = 0;
+      continue;
     }
-    return json({ format: 'it-inventario-backup-v1', exported_at: new Date().toISOString(), tables }, 200, {
+    await insertRows(db, table, values, 'id');
+    imported[table] = values.length;
+  }
+  return imported;
+}
+
+async function handleBackup(request: Request, env: AppEnv) {
+  const user = await getUser(request, env);
+  if (!user) return json({ error: 'unauthenticated' }, 401);
+  if (user.role !== 'admin') return json({ error: 'forbidden' }, 403);
+  if (request.method === 'GET') {
+    const backup = await createBackupPayload(env.DB);
+    return json(backup, 200, {
       'Content-Disposition': `attachment; filename="it-inventario-${new Date().toISOString().slice(0, 10)}.json"`,
     });
   }
   if (request.method === 'POST') {
     const body = await request.json<{ format?: string; tables?: Record<string, unknown> }>();
     if (!body.tables || typeof body.tables !== 'object') return json({ error: 'invalid_backup' }, 400);
-    const imported: Record<string, number> = {};
-    for (const table of migrationOrder) {
-      const values = body.tables[table];
-      if (!Array.isArray(values) || values.length === 0) {
-        imported[table] = 0;
-        continue;
-      }
-      await insertRows(env.DB, table, values, 'id');
-      imported[table] = values.length;
-    }
+    const imported = await restoreBackupPayload(env.DB, body.tables);
+    await addAudit(env.DB, { action: 'backup_restored', entity_type: 'system', entity_name: 'Copia JSON', details: { imported }, performed_by: actorLabel(user) });
     console.log(JSON.stringify({ event: 'backup_imported', imported }));
     return json({ success: true, imported });
   }
   return json({ error: 'method_not_allowed' }, 405);
 }
 
+function createAccessToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return `INVU-${[...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+async function handleUsers(request: Request, env: AppEnv) {
+  const currentUser = await getUser(request, env);
+  if (!currentUser) return json({ error: 'unauthenticated' }, 401);
+  if (currentUser.role !== 'admin') return json({ error: 'forbidden' }, 403);
+
+  if (request.method === 'GET') {
+    const result = await env.DB.prepare(`SELECT id, name, email, role, token_hint, active, created_at, updated_at, last_login_at
+      FROM app_users ORDER BY active DESC, name`).all<DataRecord>();
+    return json({ users: (result.results ?? []).map((row) => ({ ...row, active: Boolean(row.active) })) });
+  }
+  if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+
+  const body = await request.json<{ action?: string; id?: string; name?: string; email?: string; role?: string; active?: boolean }>();
+  const action = body.action ?? 'create';
+  if (action === 'create') {
+    const name = body.name?.trim().slice(0, 120) ?? '';
+    const email = body.email?.trim().toLowerCase().slice(0, 200) ?? '';
+    const role = ['admin', 'technician', 'viewer'].includes(body.role ?? '') ? body.role as UserRole : 'viewer';
+    if (!name || !email || !email.includes('@')) return json({ error: 'invalid_user' }, 400);
+    const exists = await env.DB.prepare('SELECT id FROM app_users WHERE email = ?').bind(email).first<{ id: string }>();
+    if (exists) return json({ error: 'email_exists' }, 409);
+    const accessToken = createAccessToken();
+    const now = new Date().toISOString();
+    const user = { id: crypto.randomUUID(), name, email, role, token_hint: accessToken.slice(-8), active: 1, created_at: now, updated_at: now };
+    await env.DB.prepare(`INSERT INTO app_users (id, name, email, role, token_hash, token_hint, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`)
+      .bind(user.id, name, email, role, await hashToken(accessToken), user.token_hint, now, now)
+      .run();
+    await addAudit(env.DB, { action: 'created', entity_type: 'user', entity_id: user.id, entity_name: name, details: { email, role }, performed_by: actorLabel(currentUser) });
+    return json({ user: { ...user, active: true }, access_token: accessToken }, 201);
+  }
+
+  if (!body.id) return json({ error: 'id_required' }, 400);
+  const existing = await env.DB.prepare('SELECT id, name, email, role, active FROM app_users WHERE id = ?').bind(body.id).first<DataRecord>();
+  if (!existing) return json({ error: 'user_not_found' }, 404);
+  if (action === 'regenerate') {
+    const accessToken = createAccessToken();
+    await env.DB.prepare('UPDATE app_users SET token_hash = ?, token_hint = ?, updated_at = ? WHERE id = ?')
+      .bind(await hashToken(accessToken), accessToken.slice(-8), new Date().toISOString(), body.id)
+      .run();
+    await addAudit(env.DB, { action: 'token_regenerated', entity_type: 'user', entity_id: body.id, entity_name: existing.name, details: {}, performed_by: actorLabel(currentUser) });
+    return json({ success: true, access_token: accessToken, token_hint: accessToken.slice(-8) });
+  }
+  if (action === 'update') {
+    const name = body.name?.trim().slice(0, 120) || String(existing.name);
+    const email = body.email?.trim().toLowerCase().slice(0, 200) || String(existing.email);
+    const role = ['admin', 'technician', 'viewer'].includes(body.role ?? '') ? body.role as UserRole : String(existing.role) as UserRole;
+    const active = body.active === undefined ? Boolean(existing.active) : body.active;
+    await env.DB.prepare('UPDATE app_users SET name = ?, email = ?, role = ?, active = ?, updated_at = ? WHERE id = ?')
+      .bind(name, email, role, active ? 1 : 0, new Date().toISOString(), body.id)
+      .run();
+    await addAudit(env.DB, { action: 'updated', entity_type: 'user', entity_id: body.id, entity_name: name, details: { email, role, active }, performed_by: actorLabel(currentUser) });
+    return json({ success: true });
+  }
+  return json({ error: 'invalid_action' }, 400);
+}
+
+async function createSnapshot(db: D1Database, label: string, automatic: boolean, createdBy: string) {
+  const backup = await createBackupPayload(db);
+  const counts = Object.fromEntries(Object.entries(backup.tables).map(([table, rows]) => [table, rows.length]));
+  const snapshot = {
+    id: crypto.randomUUID(),
+    label: label.trim().slice(0, 160) || (automatic ? 'Copia automática' : 'Copia manual'),
+    created_at: new Date().toISOString(),
+  };
+  await db.prepare(`INSERT INTO inventory_snapshots (id, label, data_json, counts_json, automatic, created_by, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(snapshot.id, snapshot.label, JSON.stringify(backup), JSON.stringify(counts), automatic ? 1 : 0, createdBy, snapshot.created_at)
+    .run();
+  if (automatic) {
+    await db.prepare(`DELETE FROM inventory_snapshots WHERE automatic = 1 AND id NOT IN (
+      SELECT id FROM inventory_snapshots WHERE automatic = 1 ORDER BY created_at DESC LIMIT 30
+    )`).run();
+  }
+  return { ...snapshot, counts, automatic, created_by: createdBy };
+}
+
+async function ensureDailySnapshot(env: AppEnv) {
+  const today = new Date().toISOString().slice(0, 10);
+  const existing = await env.DB.prepare('SELECT id FROM inventory_snapshots WHERE automatic = 1 AND substr(created_at, 1, 10) = ? LIMIT 1').bind(today).first();
+  if (!existing) await createSnapshot(env.DB, `Copia automática ${today}`, true, 'scheduler');
+}
+
+async function handleSnapshots(request: Request, env: AppEnv) {
+  const user = await getUser(request, env);
+  if (!user) return json({ error: 'unauthenticated' }, 401);
+  if (user.role !== 'admin') return json({ error: 'forbidden' }, 403);
+  if (request.method === 'GET') {
+    const result = await env.DB.prepare(`SELECT id, label, counts_json, automatic, created_by, created_at
+      FROM inventory_snapshots ORDER BY created_at DESC LIMIT 100`).all<DataRecord>();
+    return json({ snapshots: (result.results ?? []).map((row) => ({
+      ...row,
+      counts: JSON.parse(String(row.counts_json ?? '{}')),
+      counts_json: undefined,
+      automatic: Boolean(row.automatic),
+    })) });
+  }
+  if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+  const body = await request.json<{ action?: string; id?: string; label?: string }>();
+  const action = body.action ?? 'create';
+  if (action === 'create') {
+    const snapshot = await createSnapshot(env.DB, body.label ?? 'Copia manual', false, actorLabel(user));
+    await addAudit(env.DB, { action: 'backup_created', entity_type: 'system', entity_id: snapshot.id, entity_name: snapshot.label, details: { counts: snapshot.counts }, performed_by: actorLabel(user) });
+    return json({ snapshot }, 201);
+  }
+  if (!body.id) return json({ error: 'id_required' }, 400);
+  if (action === 'restore') {
+    const row = await env.DB.prepare('SELECT label, data_json FROM inventory_snapshots WHERE id = ?').bind(body.id).first<{ label: string; data_json: string }>();
+    if (!row) return json({ error: 'snapshot_not_found' }, 404);
+    const backup = JSON.parse(row.data_json) as { tables?: Record<string, unknown> };
+    if (!backup.tables) return json({ error: 'invalid_snapshot' }, 500);
+    const imported = await restoreBackupPayload(env.DB, backup.tables);
+    await addAudit(env.DB, { action: 'backup_restored', entity_type: 'system', entity_id: body.id, entity_name: row.label, details: { imported }, performed_by: actorLabel(user) });
+    return json({ success: true, imported });
+  }
+  if (action === 'delete') {
+    await env.DB.prepare('DELETE FROM inventory_snapshots WHERE id = ?').bind(body.id).run();
+    return json({ success: true });
+  }
+  return json({ error: 'invalid_action' }, 400);
+}
+
+async function restoreRecycleEntry(db: D1Database, entry: { table_name: string; record_json: string }) {
+  if (!isTableName(entry.table_name)) throw new Error('Entidad de papelera no válida');
+  const payload = JSON.parse(entry.record_json) as { record?: DataRecord; related?: Record<string, DataRecord[]> };
+  if (!payload.record) throw new Error('Registro de papelera no válido');
+  await insertRows(db, entry.table_name, payload.record, 'id');
+  for (const table of migrationOrder) {
+    const rows = payload.related?.[table];
+    if (rows?.length) await insertRows(db, table, rows, 'id');
+  }
+}
+
+async function handleRecycleBin(request: Request, env: AppEnv) {
+  const user = await getUser(request, env);
+  if (!user) return json({ error: 'unauthenticated' }, 401);
+  if (user.role !== 'admin') return json({ error: 'forbidden' }, 403);
+  if (request.method === 'GET') {
+    const result = await env.DB.prepare(`SELECT id, table_name, record_id, display_name, deleted_by, deleted_at
+      FROM recycle_bin ORDER BY deleted_at DESC LIMIT 500`).all<DataRecord>();
+    return json({ items: result.results ?? [] });
+  }
+  if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+  const body = await request.json<{ action?: string; id?: string }>();
+  if (body.action === 'empty') {
+    await env.DB.prepare('DELETE FROM recycle_bin').run();
+    await addAudit(env.DB, { action: 'recycle_emptied', entity_type: 'system', entity_name: 'Papelera', details: {}, performed_by: actorLabel(user) });
+    return json({ success: true });
+  }
+  if (!body.id) return json({ error: 'id_required' }, 400);
+  if (body.action === 'restore') {
+    const entry = await env.DB.prepare('SELECT table_name, record_json, display_name FROM recycle_bin WHERE id = ?').bind(body.id).first<{ table_name: string; record_json: string; display_name: string }>();
+    if (!entry) return json({ error: 'recycle_item_not_found' }, 404);
+    await restoreRecycleEntry(env.DB, entry);
+    await env.DB.prepare('DELETE FROM recycle_bin WHERE id = ?').bind(body.id).run();
+    await addAudit(env.DB, { action: 'restored', entity_type: entry.table_name, entity_name: entry.display_name, details: { recycle_id: body.id }, performed_by: actorLabel(user) });
+    return json({ success: true });
+  }
+  if (body.action === 'delete') {
+    await env.DB.prepare('DELETE FROM recycle_bin WHERE id = ?').bind(body.id).run();
+    return json({ success: true });
+  }
+  return json({ error: 'invalid_action' }, 400);
+}
+
 export default {
-  async fetch(request: Request, env: AppEnv): Promise<Response> {
+  async fetch(request: Request, env: AppEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') {
       return withCors(new Response(null, { status: 204 }), request, env);
@@ -643,6 +914,7 @@ export default {
         response = json({ status: row?.ok === 1 ? 'ok' : 'degraded', service: 'IT Inventario', storage: 'D1' });
       } else if (url.pathname === '/api/session') {
         const user = await getUser(request, env);
+        if (user?.role === 'admin') ctx.waitUntil(ensureDailySnapshot(env));
         response = user ? json({ user }) : json({ error: 'unauthenticated' }, 401);
       } else if (url.pathname.startsWith('/api/data/')) {
         response = await handleDataApi(request, env, decodeURIComponent(url.pathname.slice('/api/data/'.length)));
@@ -652,8 +924,16 @@ export default {
         response = await handleAgentSync(request, env);
       } else if (url.pathname === '/api/admin/backup') {
         response = await handleBackup(request, env);
+      } else if (url.pathname === '/api/admin/users') {
+        response = await handleUsers(request, env);
+      } else if (url.pathname === '/api/admin/snapshots') {
+        response = await handleSnapshots(request, env);
+      } else if (url.pathname === '/api/admin/recycle-bin') {
+        response = await handleRecycleBin(request, env);
       } else if (url.pathname === '/api/functions/notify-incident') {
-        if (!await getUser(request, env)) response = json({ error: 'unauthenticated' }, 401);
+        const user = await getUser(request, env);
+        if (!user) response = json({ error: 'unauthenticated' }, 401);
+        else if (!requireRole(user, ['admin', 'technician'])) response = json({ error: 'forbidden' }, 403);
         else if (request.method !== 'POST') response = json({ error: 'method_not_allowed' }, 405);
         else {
           const body = await request.json<{ incident_id?: string; event?: string }>();
@@ -672,5 +952,8 @@ export default {
       console.error(JSON.stringify({ event: 'request_failed', requestId, path: url.pathname, method: request.method, message: error instanceof Error ? error.message : String(error) }));
       return withCors(json({ error: { message: 'No se pudo completar la operación', requestId } }, 500), request, env);
     }
+  },
+  async scheduled(_controller: ScheduledController, env: AppEnv, ctx: ExecutionContext) {
+    ctx.waitUntil(ensureDailySnapshot(env));
   },
 } satisfies ExportedHandler<AppEnv>;

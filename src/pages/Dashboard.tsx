@@ -17,8 +17,11 @@ import {
   ShieldAlert,
   User,
   Wrench,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { downloadCompleteInventoryXlsx } from '../lib/inventoryWorkbook';
+import { useToast } from '../contexts/ToastContext';
 import { Badge } from '../components/ui/Badge';
 import { SkeletonCard } from '../components/ui/SkeletonRow';
 import { useApp } from '../contexts/AppContext';
@@ -257,8 +260,20 @@ function daysUntil(date: string | null) {
 
 export function Dashboard() {
   const { setCurrentPage } = useApp();
+  const { showToast } = useToast();
   const [data, setData] = useState<DashboardData>(emptyData);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+
+  async function exportWorkbook() {
+    setExporting(true);
+    try {
+      await downloadCompleteInventoryXlsx();
+      showToast('Excel completo generado con todas las hojas');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'No se pudo generar el Excel', 'error');
+    } finally { setExporting(false); }
+  }
 
   useEffect(() => {
     async function load() {
@@ -428,6 +443,10 @@ export function Dashboard() {
 
   return (
     <div className="p-6 space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="text-lg font-semibold text-gray-900">Vista general</h2><p className="text-sm text-gray-500">Situación del parque, alertas y calidad de los datos.</p></div>
+        <button onClick={exportWorkbook} disabled={exporting} className="btn-primary flex items-center gap-2"><FileSpreadsheet size={17} />{exporting ? 'Generando Excel…' : 'Excel completo'}</button>
+      </div>
       <div className="grid grid-cols-2 xl:grid-cols-6 gap-4">
         <StatCard label="Total activos" value={data.totalAssets} icon={Package} tone="slate" subtitle={`${activeAssets} en parque activo`} />
         <StatCard label="Equipos IT" value={data.computerAssets.length} icon={Monitor} tone="blue" subtitle="portatiles, torres y servidores" />

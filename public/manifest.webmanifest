@@ -1,0 +1,11 @@
+{
+  "name": "IT Inventario FEVAL",
+  "short_name": "Inventario",
+  "description": "Gestión de activos, incidencias, licencias y componentes",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "icons": [{ "src": "favicon.ico", "sizes": "48x48", "type": "image/x-icon" }]
+}

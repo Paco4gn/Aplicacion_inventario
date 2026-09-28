@@ -12,26 +12,28 @@ const pageTitles: Record<string, string> = {
   software: 'Software & Licencias',
   components: 'Componentes',
   audit: 'Registro de Auditoría',
+  administration: 'Administración',
+  recycle: 'Papelera',
 };
 
 interface SearchResult {
   id: string;
   label: string;
   sublabel: string;
-  type: 'asset' | 'employee' | 'incident';
-  page: 'assets' | 'employees' | 'incidents';
+  type: 'asset' | 'employee' | 'incident' | 'software' | 'license' | 'component';
+  page: 'assets' | 'employees' | 'incidents' | 'software' | 'components';
 }
 
 interface Notification {
   id: string;
-  type: 'incident' | 'license' | 'stock';
+  type: 'incident' | 'license' | 'stock' | 'warranty' | 'overdue';
   title: string;
   body: string;
-  page: 'incidents' | 'software' | 'components';
+  page: 'incidents' | 'software' | 'components' | 'assets';
 }
 
 export function Header() {
-  const { currentPage, setCurrentPage } = useApp();
+  const { currentPage, setCurrentPage, currentUser } = useApp();
   const alertCounts = useAlertCounts();
 
   const [query, setQuery] = useState('');
@@ -45,16 +47,9 @@ export function Header() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const bellRef = useRef<HTMLDivElement>(null);
 
-  const [userEmail, setUserEmail] = useState('');
   const [serviceOnline, setServiceOnline] = useState<boolean | null>(null);
 
-  const totalAlerts = alertCounts.openIncidents + alertCounts.expiringLicenses + alertCounts.lowStock;
-
-  useEffect(() => {
-    api.auth.getUser().then(({ data: { user } }) => {
-      setUserEmail(user?.email ?? '');
-    });
-  }, []);
+  const totalAlerts = alertCounts.openIncidents + alertCounts.overdueIncidents + alertCounts.expiringLicenses + alertCounts.expiringWarranties + alertCounts.lowStock;
 
   useEffect(() => {
     let active = true;
@@ -83,6 +78,9 @@ export function Header() {
         page: 'incidents',
       });
     }
+    if (alertCounts.overdueIncidents > 0) {
+      list.push({ id: 'overdue', type: 'overdue', title: 'Incidencias vencidas', body: `${alertCounts.overdueIncidents} incidencia${alertCounts.overdueIncidents > 1 ? 's' : ''} fuera de plazo`, page: 'incidents' });
+    }
     if (alertCounts.expiringLicenses > 0) {
       list.push({
         id: 'licenses',
@@ -100,6 +98,9 @@ export function Header() {
         body: `${alertCounts.lowStock} componente${alertCounts.lowStock > 1 ? 's' : ''} por debajo del mínimo`,
         page: 'components',
       });
+    }
+    if (alertCounts.expiringWarranties > 0) {
+      list.push({ id: 'warranties', type: 'warranty', title: 'Garantías por vencer', body: `${alertCounts.expiringWarranties} activo${alertCounts.expiringWarranties > 1 ? 's' : ''} pierde${alertCounts.expiringWarranties > 1 ? 'n' : ''} la garantía en 30 días`, page: 'assets' });
     }
     setNotifications(list);
   }, [alertCounts]);
@@ -124,15 +125,18 @@ export function Header() {
   async function doSearch(q: string) {
     setSearchLoading(true);
     const pattern = `%${q}%`;
-    const [{ data: assets }, { data: employees }, { data: incidents }] = await Promise.all([
-      api.from('assets').select('id,serial_number,brand,model,asset_type').or(`serial_number.ilike.${pattern},brand.ilike.${pattern},model.ilike.${pattern}`).limit(4),
+    const [{ data: assets }, { data: employees }, { data: incidents }, { data: software }, { data: licenses }, { data: components }] = await Promise.all([
+      api.from('assets').select('id,serial_number,name,brand,model,asset_type,location').or(`serial_number.ilike.${pattern},name.ilike.${pattern},brand.ilike.${pattern},model.ilike.${pattern},location.ilike.${pattern},ip_address.ilike.${pattern},mac_address.ilike.${pattern},imei.ilike.${pattern}`).limit(4),
       api.from('employees').select('id,name,department').ilike('name', pattern).limit(4),
       api.from('incidents').select('id,title,status').ilike('title', pattern).limit(4),
+      api.from('software').select('id,name,vendor,version').or(`name.ilike.${pattern},vendor.ilike.${pattern},version.ilike.${pattern}`).limit(4),
+      api.from('licenses').select('id,license_key,license_type').ilike('license_key', pattern).limit(4),
+      api.from('components').select('id,name,brand,model,stock').or(`name.ilike.${pattern},brand.ilike.${pattern},model.ilike.${pattern},location.ilike.${pattern}`).limit(4),
     ]);
 
     const r: SearchResult[] = [
-      ...(assets ?? []).map((a: { id: string; serial_number: string; brand: string; model: string; asset_type: string }) => ({
-        id: a.id, label: a.serial_number, sublabel: `${a.asset_type} · ${a.brand} ${a.model}`,
+      ...(assets ?? []).map((a: { id: string; serial_number: string; name: string; brand: string; model: string; asset_type: string }) => ({
+        id: a.id, label: a.serial_number, sublabel: `${a.name || a.asset_type} · ${a.brand || ''} ${a.model || ''}`,
         type: 'asset' as const, page: 'assets' as const,
       })),
       ...(employees ?? []).map((e: { id: string; name: string; department: string }) => ({
@@ -143,6 +147,9 @@ export function Header() {
         id: i.id, label: i.title, sublabel: `Incidencia · ${i.status}`,
         type: 'incident' as const, page: 'incidents' as const,
       })),
+      ...(software ?? []).map((s: { id: string; name: string; vendor: string; version: string }) => ({ id: s.id, label: s.name, sublabel: `${s.vendor || 'Software'} · ${s.version || 'sin versión'}`, type: 'software' as const, page: 'software' as const })),
+      ...(licenses ?? []).map((l: { id: string; license_key: string; license_type: string }) => ({ id: l.id, label: l.license_key, sublabel: `Licencia · ${l.license_type || 'sin tipo'}`, type: 'license' as const, page: 'software' as const })),
+      ...(components ?? []).map((c: { id: string; name: string; brand: string; model: string; stock: number }) => ({ id: c.id, label: c.name, sublabel: `${c.brand || ''} ${c.model || ''} · Stock ${c.stock}`, type: 'component' as const, page: 'components' as const })),
     ];
 
     setResults(r);
@@ -161,15 +168,18 @@ export function Header() {
     setBellOpen(false);
   }
 
-  const searchIconMap = { asset: Monitor, employee: Users, incident: AlertTriangle };
+  const searchIconMap = { asset: Monitor, employee: Users, incident: AlertTriangle, software: BookOpen, license: BookOpen, component: Package };
 
   const notifIconMap = {
     incident: { icon: AlertTriangle, bg: 'bg-red-50', color: 'text-red-500' },
     license: { icon: BookOpen, bg: 'bg-amber-50', color: 'text-amber-500' },
     stock: { icon: Package, bg: 'bg-orange-50', color: 'text-orange-500' },
+    warranty: { icon: Monitor, bg: 'bg-violet-50', color: 'text-violet-500' },
+    overdue: { icon: AlertTriangle, bg: 'bg-rose-50', color: 'text-rose-600' },
   };
 
-  const displayName = userEmail ? userEmail.split('@')[0] : 'Admin';
+  const displayName = currentUser.name || currentUser.email.split('@')[0] || 'Usuario';
+  const roleLabel = currentUser.role === 'admin' ? 'Administrador' : currentUser.role === 'technician' ? 'Técnico' : 'Consulta';
 
   return (
     <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-3 sm:px-6 flex-shrink-0 gap-3 sm:gap-4">
@@ -184,7 +194,7 @@ export function Header() {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onFocus={() => results.length > 0 && setSearchOpen(true)}
-            placeholder="Buscar activos, empleados, incidencias..."
+            placeholder="Buscar en todo el inventario..."
             className="w-full pl-8 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 bg-gray-50 transition-colors"
           />
           {query && (
@@ -298,7 +308,10 @@ export function Header() {
           <div className="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center">
             <User size={14} className="text-white" />
           </div>
-          <span className="hidden sm:block text-sm font-medium text-gray-700 max-w-[120px] truncate">{displayName}</span>
+          <span className="hidden sm:block text-left max-w-[150px]">
+            <span className="block text-sm font-medium text-gray-700 truncate">{displayName}</span>
+            <span className="block text-[10px] text-gray-400 leading-none">{roleLabel}</span>
+          </span>
         </button>
 
         <button
