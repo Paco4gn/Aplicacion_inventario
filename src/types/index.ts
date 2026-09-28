@@ -172,6 +172,7 @@ export interface ComponentMovement {
   asset_id: string | null;
   moved_at: string;
   component?: Component;
+  asset?: Asset | null;
 }
 
 export interface AuditLog {

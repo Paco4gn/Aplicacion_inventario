@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ClipboardList, Download, CalendarRange, Upload } from 'lucide-react';
 import { api, apiRequest } from '../lib/api';
 import { exportCSV } from '../lib/csv';
+import { datedCsvFilename, exportDateTime } from '../lib/exportFormat';
 import { useToast } from '../contexts/ToastContext';
 import { SearchInput } from '../components/ui/SearchInput';
 import { Badge } from '../components/ui/Badge';
@@ -77,13 +78,26 @@ export function AuditLog() {
   function clearDateFilters() { setDateFrom(''); setDateTo(''); }
 
   function handleExport() {
-    exportCSV('auditoria.csv', filtered, [
-      { key: 'created_at', label: 'Fecha' },
-      { key: 'action', label: 'Acción' },
-      { key: 'entity_type', label: 'Entidad' },
+    const rows = filtered.map(log => ({
+      ...log,
+      action_label: ACTION_LABELS[log.action] ?? log.action,
+      entity_label: ENTITY_LABELS[log.entity_type] ?? log.entity_type,
+      details_export: log.details ? JSON.stringify(log.details) : '',
+      created_at_export: exportDateTime(log.created_at),
+    }));
+    exportCSV(datedCsvFilename('auditoria-completa'), rows, [
+      { key: 'id', label: 'ID registro' },
+      { key: 'created_at_export', label: 'Fecha y hora' },
+      { key: 'action_label', label: 'Acción' },
+      { key: 'action', label: 'Código acción' },
+      { key: 'entity_label', label: 'Entidad' },
+      { key: 'entity_type', label: 'Código entidad' },
+      { key: 'entity_id', label: 'ID entidad' },
       { key: 'entity_name', label: 'Nombre' },
+      { key: 'details_export', label: 'Detalles completos' },
       { key: 'performed_by', label: 'Usuario' },
     ]);
+    showToast(`${filtered.length} registros de auditoría exportados`);
   }
 
   async function downloadBackup() {
@@ -178,7 +192,7 @@ export function AuditLog() {
             onClick={handleExport}
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"
           >
-            <Download size={15} /> CSV
+            <Download size={15} /> CSV completo
           </button>
           <button
             onClick={downloadBackup}

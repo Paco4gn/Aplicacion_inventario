@@ -3,13 +3,14 @@ import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, AlertCircle, Download }
 import { api } from '../lib/api';
 import { logAction } from '../lib/audit';
 import { exportCSV } from '../lib/csv';
+import { datedCsvFilename, exportDateTime } from '../lib/exportFormat';
 import { useToast } from '../contexts/ToastContext';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { SearchInput } from '../components/ui/SearchInput';
 import { Pagination } from '../components/ui/Pagination';
-import type { Component, ComponentMovement } from '../types';
+import type { Asset, Component, ComponentMovement } from '../types';
 
 const PAGE_SIZE = 15;
 const COMPONENT_TYPES = ['RAM', 'HDD', 'SSD', 'GPU', 'CPU', 'PSU', 'Motherboard', 'Monitor', 'Teclado', 'Ratón', 'Cable', 'Otro'];
@@ -42,7 +43,7 @@ export function Components() {
     const [{ data: c }, { data: m }] = await Promise.all([
       api.from('components').select('*').order('name'),
       api.from('component_movements')
-        .select('*, component:components(name,component_type)')
+        .select('*, component:components(*), asset:assets(*)')
         .order('moved_at', { ascending: false })
         .limit(200),
     ]);
@@ -109,16 +110,69 @@ export function Components() {
   }
 
   function handleExport() {
-    exportCSV('componentes.csv', filteredComponents, [
-      { key: 'name', label: 'Nombre' },
-      { key: 'component_type', label: 'Tipo' },
-      { key: 'brand', label: 'Marca' },
-      { key: 'model', label: 'Modelo' },
-      { key: 'stock', label: 'Stock' },
-      { key: 'min_stock', label: 'Stock Mínimo' },
-      { key: 'location', label: 'Ubicación' },
-      { key: 'unit_cost', label: 'Coste Unitario €' },
+    if (tab === 'stock') {
+      const rows = filteredComponents.map(component => ({
+        ...component,
+        stock_status: component.stock === 0 ? 'Sin stock' : component.stock <= component.min_stock ? 'Stock bajo' : 'Correcto',
+        inventory_value: component.unit_cost == null ? null : Math.round(component.stock * component.unit_cost * 100) / 100,
+        created_formatted: exportDateTime(component.created_at),
+        updated_formatted: exportDateTime(component.updated_at),
+      }));
+      exportCSV(datedCsvFilename('componentes-completo'), rows, [
+        { key: 'id', label: 'ID componente' },
+        { key: 'name', label: 'Nombre' },
+        { key: 'component_type', label: 'Tipo' },
+        { key: 'brand', label: 'Marca' },
+        { key: 'model', label: 'Modelo' },
+        { key: 'stock', label: 'Stock' },
+        { key: 'min_stock', label: 'Stock mínimo' },
+        { key: 'stock_status', label: 'Estado stock' },
+        { key: 'location', label: 'Ubicación' },
+        { key: 'unit_cost', label: 'Coste unitario €' },
+        { key: 'inventory_value', label: 'Valor de existencias €' },
+        { key: 'notes', label: 'Notas' },
+        { key: 'created_formatted', label: 'Creado' },
+        { key: 'updated_formatted', label: 'Actualizado' },
+      ]);
+      showToast(`${rows.length} componentes exportados con valoración y estado`);
+      return;
+    }
+
+    const rows = filteredMovements.map(movement => {
+      const component = movement.component as Component | undefined;
+      const asset = movement.asset as Asset | null | undefined;
+      return {
+        ...movement,
+        component_name: component?.name ?? '',
+        component_type_name: component?.component_type ?? '',
+        component_brand: component?.brand ?? '',
+        component_model: component?.model ?? '',
+        component_location: component?.location ?? '',
+        movement_label: movement.movement_type === 'in' ? 'Entrada' : 'Salida',
+        signed_quantity: movement.movement_type === 'in' ? movement.quantity : -movement.quantity,
+        asset_serial: asset?.serial_number ?? '',
+        asset_name: asset?.name ?? '',
+        moved_formatted: exportDateTime(movement.moved_at),
+      };
+    });
+    exportCSV(datedCsvFilename('movimientos-componentes-completo'), rows, [
+      { key: 'id', label: 'ID movimiento' },
+      { key: 'component_id', label: 'ID componente' },
+      { key: 'component_name', label: 'Componente' },
+      { key: 'component_type_name', label: 'Tipo' },
+      { key: 'component_brand', label: 'Marca' },
+      { key: 'component_model', label: 'Modelo' },
+      { key: 'component_location', label: 'Ubicación' },
+      { key: 'movement_label', label: 'Movimiento' },
+      { key: 'quantity', label: 'Cantidad' },
+      { key: 'signed_quantity', label: 'Variación stock' },
+      { key: 'reason', label: 'Razón' },
+      { key: 'asset_serial', label: 'Activo Nº Serie' },
+      { key: 'asset_name', label: 'Activo nombre' },
+      { key: 'asset_id', label: 'ID activo' },
+      { key: 'moved_formatted', label: 'Fecha' },
     ]);
+    showToast(`${rows.length} movimientos exportados con componente y activo`);
   }
 
   if (loading) return (
@@ -137,11 +191,11 @@ export function Components() {
       <div className="flex flex-wrap items-center gap-3">
         <SearchInput value={search} onChange={setSearch} placeholder="Buscar componente..." />
         <div className="ml-auto flex items-center gap-2">
+          <button onClick={handleExport} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors">
+            <Download size={15} /> CSV completo
+          </button>
           {tab === 'stock' && (
             <>
-              <button onClick={handleExport} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors">
-                <Download size={15} /> CSV
-              </button>
               <button onClick={() => { setEditing(emptyComponent); setModalOpen(true); }} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
                 <Plus size={16} /> Nuevo Componente
               </button>
@@ -215,6 +269,7 @@ export function Components() {
                   <th className="text-left px-4 py-3 text-gray-500 font-medium">Movimiento</th>
                   <th className="text-left px-4 py-3 text-gray-500 font-medium">Cantidad</th>
                   <th className="text-left px-4 py-3 text-gray-500 font-medium">Razón</th>
+                  <th className="text-left px-4 py-3 text-gray-500 font-medium">Activo relacionado</th>
                   <th className="text-left px-4 py-3 text-gray-500 font-medium">Fecha</th>
                 </tr>
               </thead>
@@ -230,10 +285,11 @@ export function Components() {
                     </td>
                     <td className="px-4 py-3 font-semibold text-gray-800">{m.movement_type === 'in' ? '+' : '-'}{m.quantity}</td>
                     <td className="px-4 py-3 text-gray-500">{m.reason || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500">{m.asset ? `${m.asset.serial_number} · ${m.asset.name}` : '—'}</td>
                     <td className="px-4 py-3 text-gray-500">{new Date(m.moved_at).toLocaleDateString('es-ES')}</td>
                   </tr>
                 ))}
-                {paginatedMovements.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">Sin movimientos</td></tr>}
+                {paginatedMovements.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">Sin movimientos</td></tr>}
               </tbody>
             </table>
           </div>

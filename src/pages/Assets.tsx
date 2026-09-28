@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, Monitor, Eye, Download, Upload, QrCode, History, 
 import { api } from '../lib/api';
 import { logAction } from '../lib/audit';
 import { exportCSV, parseCSV } from '../lib/csv';
+import { datedCsvFilename, exportDate, exportDateTime } from '../lib/exportFormat';
 import { useToast } from '../contexts/ToastContext';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
@@ -81,6 +82,50 @@ function normalizeAssetType(value?: string | null) {
   if (direct) return direct.value;
   const byLabel = ASSET_TYPES.find(t => t.label.toLowerCase() === raw.toLowerCase());
   return byLabel?.value ?? raw;
+}
+
+function normalizeAssetStatus(value?: string | null): Asset['status'] {
+  const raw = (value ?? '').trim().toLowerCase();
+  if (['active', 'activo'].includes(raw)) return 'active';
+  if (['storage', 'almacén', 'almacen'].includes(raw)) return 'storage';
+  if (['repair', 'reparación', 'reparacion', 'en reparación', 'en reparacion'].includes(raw)) return 'repair';
+  if (['retired', 'retirado'].includes(raw)) return 'retired';
+  return 'active';
+}
+
+function normalizeImportedDate(value?: string | null) {
+  const raw = (value ?? '').trim();
+  if (!raw) return null;
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  const localMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (localMatch) return `${localMatch[3]}-${localMatch[2].padStart(2, '0')}-${localMatch[1].padStart(2, '0')}`;
+  return null;
+}
+
+function normalizeImportedDateTime(value?: string | null) {
+  const raw = (value ?? '').trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  const localMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:,?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!localMatch) return null;
+  return new Date(
+    Number(localMatch[3]),
+    Number(localMatch[2]) - 1,
+    Number(localMatch[1]),
+    Number(localMatch[4] ?? 0),
+    Number(localMatch[5] ?? 0),
+    Number(localMatch[6] ?? 0),
+  ).toISOString();
+}
+
+function parseImportedNumber(value?: string | null) {
+  const raw = (value ?? '').trim().replace(/\s/g, '');
+  if (!raw) return null;
+  const normalized = raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function AssetTypeIcon({ type }: { type?: string | null }) {
@@ -204,7 +249,7 @@ export function Assets() {
     const [{ data: a }, { data: e }, { data: asgn }] = await Promise.all([
       api.from('assets').select('*').order('serial_number'),
       api.from('employees').select('*').eq('active', true).order('name'),
-      api.from('asset_assignments').select('*, employee:employees(id,name)').is('returned_at', null),
+      api.from('asset_assignments').select('*, employee:employees(id,name,email,department,position)').is('returned_at', null),
     ]);
     setAssets(a ?? []);
     setEmployees(e ?? []);
@@ -216,8 +261,12 @@ export function Assets() {
   useEffect(() => { setPage(1); setSelectedIds(new Set()); }, [search, filterStatus, filterType, filterAvailability]);
 
   function currentEmployee(assetId: string) {
-    const asgn = assignments.find(a => a.asset_id === assetId);
+    const asgn = currentAssignment(assetId);
     return asgn ? (asgn.employee as unknown as Employee) : null;
+  }
+
+  function currentAssignment(assetId: string) {
+    return assignments.find(assignment => assignment.asset_id === assetId) ?? null;
   }
 
   const computerAssets = assets.filter(a => isComputerAsset(a.asset_type));
@@ -457,32 +506,74 @@ ${warrantyWarning}${eolWarning}
   }
 
   function handleExportCSV() {
-    exportCSV('activos.csv', filtered, [
+    const rows = filtered.map(asset => {
+      const assignment = currentAssignment(asset.id);
+      const employee = assignment?.employee as Employee | null | undefined;
+      const parent = parentAsset(asset);
+      return {
+        ...asset,
+        asset_type_label: assetTypeLabel(asset.asset_type),
+        status_label: STATUSES.find(status => status.value === asset.status)?.label ?? asset.status,
+        assigned_employee: employee?.name ?? '',
+        assigned_email: employee?.email ?? '',
+        assigned_department: employee?.department ?? '',
+        assigned_position_name: employee?.position ?? '',
+        assignment_date: exportDateTime(assignment?.assigned_at),
+        assignment_notes: assignment?.notes ?? '',
+        assignment_id: assignment?.id ?? '',
+        parent_serial: parent?.serial_number ?? '',
+        parent_name: parent?.name ?? '',
+        purchase_date_formatted: exportDate(asset.purchase_date),
+        warranty_expiry_formatted: exportDate(asset.warranty_expiry),
+        end_of_life_formatted: exportDate(asset.end_of_life),
+        last_inventory_formatted: exportDateTime(asset.last_inventory_at),
+        created_formatted: exportDateTime(asset.created_at),
+        updated_formatted: exportDateTime(asset.updated_at),
+      };
+    });
+    exportCSV(datedCsvFilename('activos-completo'), rows, [
+      { key: 'id', label: 'ID activo' },
       { key: 'serial_number', label: 'Nº Serie' },
-      { key: 'asset_type', label: 'Tipo' },
+      { key: 'name', label: 'Nombre' },
+      { key: 'asset_type_label', label: 'Tipo' },
       { key: 'brand', label: 'Marca' },
       { key: 'model', label: 'Modelo' },
-      { key: 'status', label: 'Estado' },
+      { key: 'status_label', label: 'Estado' },
+      { key: 'assigned_employee', label: 'Asignado a' },
+      { key: 'assigned_email', label: 'Email asignado' },
+      { key: 'assigned_department', label: 'Departamento asignado' },
+      { key: 'assigned_position_name', label: 'Cargo asignado' },
+      { key: 'assignment_date', label: 'Fecha asignación' },
+      { key: 'assignment_notes', label: 'Notas asignación' },
+      { key: 'assignment_id', label: 'ID asignación' },
       { key: 'assigned_position', label: 'Puesto' },
-      { key: 'parent_asset_id', label: 'Equipo vinculado' },
+      { key: 'parent_serial', label: 'Equipo vinculado Nº Serie' },
+      { key: 'parent_name', label: 'Equipo vinculado Nombre' },
+      { key: 'parent_asset_id', label: 'ID equipo vinculado' },
       { key: 'location', label: 'Ubicación' },
-      { key: 'purchase_date', label: 'Fecha Compra' },
+      { key: 'purchase_date_formatted', label: 'Fecha Compra' },
       { key: 'purchase_value', label: 'Valor €' },
-      { key: 'warranty_expiry', label: 'Fin Garantía' },
-      { key: 'end_of_life', label: 'Fin de Vida' },
+      { key: 'warranty_expiry_formatted', label: 'Fin Garantía' },
+      { key: 'end_of_life_formatted', label: 'Fin de Vida' },
       { key: 'operating_system', label: 'Sistema operativo' },
       { key: 'processor', label: 'Procesador' },
       { key: 'ip_address', label: 'IP' },
       { key: 'mac_address', label: 'MAC' },
       { key: 'ram_gb', label: 'RAM GB' },
       { key: 'storage_gb', label: 'Disco GB' },
-      { key: 'last_inventory_at', label: 'Ultimo inventario' },
+      { key: 'last_inventory_formatted', label: 'Último inventario' },
       { key: 'screen_size', label: 'Caracteristica periferico' },
       { key: 'resolution', label: 'Detalle periferico' },
       { key: 'connection_type', label: 'Conexion' },
       { key: 'toner_model', label: 'Consumible' },
+      { key: 'imei', label: 'IMEI' },
+      { key: 'sim_number', label: 'Número SIM' },
       { key: 'notes', label: 'Notas' },
+      { key: 'image_url', label: 'URL imagen' },
+      { key: 'created_formatted', label: 'Creado' },
+      { key: 'updated_formatted', label: 'Actualizado' },
     ]);
+    showToast(`${rows.length} activos exportados con asignaciones y datos técnicos`);
   }
 
   function handleExportWordLabelDocument() {
@@ -552,19 +643,27 @@ ${warrantyWarning}${eolWarning}
       asset_type: normalizeAssetType(r['Tipo'] || r['asset_type'] || 'Other'),
       brand: r['Marca'] || r['brand'] || '',
       model: r['Modelo'] || r['model'] || '',
-      status: (r['Estado'] || r['status'] || 'active') as Asset['status'],
+      status: normalizeAssetStatus(r['Estado'] || r['status'] || 'active'),
       location: r['Ubicación'] || r['location'] || '',
-      purchase_date: r['Fecha Compra'] || r['purchase_date'] || null,
-      purchase_value: parseFloat(r['Valor €'] || r['purchase_value'] || '') || null,
-      warranty_expiry: r['Fin Garantía'] || r['warranty_expiry'] || null,
-      end_of_life: r['Fin de Vida'] || r['end_of_life'] || null,
+      purchase_date: normalizeImportedDate(r['Fecha Compra'] || r['purchase_date']),
+      purchase_value: parseImportedNumber(r['Valor €'] || r['purchase_value']),
+      warranty_expiry: normalizeImportedDate(r['Fin Garantía'] || r['warranty_expiry']),
+      end_of_life: normalizeImportedDate(r['Fin de Vida'] || r['end_of_life']),
       operating_system: r['Sistema operativo'] || r['operating_system'] || '',
       ip_address: r['IP'] || r['ip_address'] || '',
       mac_address: r['MAC'] || r['mac_address'] || '',
       processor: r['Procesador'] || r['processor'] || '',
-      ram_gb: parseFloat(r['RAM (GB)'] || r['ram_gb'] || '') || null,
-      storage_gb: parseFloat(r['Disco (GB)'] || r['storage_gb'] || '') || null,
-      last_inventory_at: r['Ultimo inventario'] || r['last_inventory_at'] || new Date().toISOString(),
+      ram_gb: parseImportedNumber(r['RAM GB'] || r['RAM (GB)'] || r['ram_gb']),
+      storage_gb: parseImportedNumber(r['Disco GB'] || r['Disco (GB)'] || r['storage_gb']),
+      last_inventory_at: normalizeImportedDateTime(r['Último inventario'] || r['Ultimo inventario'] || r['last_inventory_at']),
+      assigned_position: r['Puesto'] || r['Puesto asignado'] || r['assigned_position'] || '',
+      screen_size: r['Caracteristica periferico'] || r['Tamaño pantalla'] || r['screen_size'] || '',
+      resolution: r['Detalle periferico'] || r['Resolución'] || r['resolution'] || '',
+      connection_type: r['Conexion'] || r['Tipo conexión'] || r['connection_type'] || '',
+      toner_model: r['Consumible'] || r['Modelo tóner'] || r['toner_model'] || '',
+      imei: r['IMEI'] || r['imei'] || '',
+      sim_number: r['Número SIM'] || r['Nº SIM'] || r['sim_number'] || '',
+      image_url: r['URL imagen'] || r['image_url'] || '',
       notes: r['Notas'] || r['notes'] || '',
     })).filter(r => r.serial_number);
     if (!toInsert.length) { showToast('No se encontraron filas válidas (columna "Nº Serie" requerida)', 'error'); return; }
@@ -621,7 +720,7 @@ ${warrantyWarning}${eolWarning}
           <div className="ml-auto flex items-center gap-2">
             <span className="text-sm text-gray-500">{filtered.length} activos</span>
             <button onClick={handleExportWordLabelDocument} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Download size={15} /> Word etiquetas</button>
-            <button onClick={handleExportCSV} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Download size={15} /> CSV</button>
+            <button onClick={handleExportCSV} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Download size={15} /> CSV completo</button>
             <button onClick={() => fileRef.current?.click()} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors"><Upload size={15} /> Importar</button>
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
             <button onClick={() => { setEditing({ ...emptyAsset }); setModalOpen(true); }} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"><Plus size={16} /> Nuevo Activo</button>

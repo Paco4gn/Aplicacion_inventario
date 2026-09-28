@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, Monitor, Download, History, UserCheck, Key } from
 import { api } from '../lib/api';
 import { logAction } from '../lib/audit';
 import { exportCSV } from '../lib/csv';
+import { datedCsvFilename, exportDateTime, joinExportValues } from '../lib/exportFormat';
 import { useToast } from '../contexts/ToastContext';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
@@ -38,9 +39,9 @@ export function Employees() {
   async function load() {
     const [{ data: e }, { data: asgn }, { data: a }, licenseResult] = await Promise.all([
       api.from('employees').select('*').order('name'),
-      api.from('asset_assignments').select('*, asset:assets(id,serial_number,brand,model,asset_type)').is('returned_at', null),
+      api.from('asset_assignments').select('*, asset:assets(id,serial_number,name,brand,model,asset_type,status,location)').is('returned_at', null),
       api.from('assets').select('id,serial_number,brand,model,asset_type,status').in('status', ['active', 'storage']).order('serial_number'),
-      api.from('license_assignments').select('*, license:licenses(id,license_key,software:software(name))').is('returned_at', null),
+      api.from('license_assignments').select('*, license:licenses(id,license_key,license_type,expiry_date,software:software(name,vendor))').is('returned_at', null),
     ]);
     setEmployees(e ?? []);
     setAssignments(asgn ?? []);
@@ -145,19 +146,49 @@ export function Employees() {
   }
 
   function handleExport() {
-    exportCSV('empleados.csv', filtered.map(emp => ({
-      ...emp,
-      assigned_assets: currentAssets(emp.id).length,
-      assigned_licenses: currentLicenses(emp.id).length,
-    })), [
+    const rows = filtered.map(employee => {
+      const employeeAssets = currentAssets(employee.id);
+      const employeeLicenses = currentLicenses(employee.id);
+      return {
+        ...employee,
+        assigned_assets: employeeAssets.length,
+        asset_serials: employeeAssets.map(assignment => assignment.asset?.serial_number ?? '').filter(Boolean).join(' | '),
+        asset_details: employeeAssets.map(assignment => {
+          const asset = assignment.asset;
+          return joinExportValues([asset?.serial_number, asset?.name, asset?.brand, asset?.model, asset?.asset_type, asset?.location]);
+        }).join(' || '),
+        asset_assignment_dates: employeeAssets.map(assignment => exportDateTime(assignment.assigned_at)).join(' | '),
+        asset_assignment_notes: employeeAssets.map(assignment => assignment.notes).filter(Boolean).join(' | '),
+        assigned_licenses: employeeLicenses.length,
+        license_details: employeeLicenses.map(assignment => {
+          const license = assignment.license;
+          return joinExportValues([license?.software?.name, license?.software?.vendor, license?.license_key, license?.license_type, license?.expiry_date]);
+        }).join(' || '),
+        license_assignment_dates: employeeLicenses.map(assignment => exportDateTime(assignment.assigned_at)).join(' | '),
+        active_label: employee.active ? 'Sí' : 'No',
+        created_formatted: exportDateTime(employee.created_at),
+        updated_formatted: exportDateTime(employee.updated_at),
+      };
+    });
+    exportCSV(datedCsvFilename('empleados-completo'), rows, [
+      { key: 'id', label: 'ID empleado' },
       { key: 'name', label: 'Nombre' },
       { key: 'email', label: 'Email' },
       { key: 'department', label: 'Departamento' },
       { key: 'position', label: 'Cargo' },
       { key: 'assigned_assets', label: 'Equipos asignados' },
+      { key: 'asset_serials', label: 'Nº serie equipos' },
+      { key: 'asset_details', label: 'Detalle equipos' },
+      { key: 'asset_assignment_dates', label: 'Fechas asignación equipos' },
+      { key: 'asset_assignment_notes', label: 'Notas asignación equipos' },
       { key: 'assigned_licenses', label: 'Licencias asignadas' },
-      { key: 'active', label: 'Activo' },
+      { key: 'license_details', label: 'Detalle licencias' },
+      { key: 'license_assignment_dates', label: 'Fechas asignación licencias' },
+      { key: 'active_label', label: 'Activo' },
+      { key: 'created_formatted', label: 'Creado' },
+      { key: 'updated_formatted', label: 'Actualizado' },
     ]);
+    showToast(`${rows.length} empleados exportados con equipos y licencias`);
   }
 
   // Free (unassigned) assets
@@ -179,7 +210,7 @@ export function Employees() {
         <div className="ml-auto flex items-center gap-2">
           <span className="text-sm text-gray-500">{filtered.length} empleados</span>
           <button onClick={handleExport} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors">
-            <Download size={15} /> CSV
+            <Download size={15} /> CSV completo
           </button>
           <button onClick={() => { setEditing({ ...emptyEmployee }); setModalOpen(true); }} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
             <Plus size={16} /> Nuevo Empleado

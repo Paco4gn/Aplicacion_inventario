@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, BookOpen, Key, Download, AlertTriangle, CheckCirc
 import { api } from '../lib/api';
 import { logAction } from '../lib/audit';
 import { exportCSV } from '../lib/csv';
+import { datedCsvFilename, exportDate, exportDateTime, joinExportValues } from '../lib/exportFormat';
 import { useToast } from '../contexts/ToastContext';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
@@ -90,9 +91,9 @@ export function Software() {
   const filteredLic = licenses.filter(l => {
     const q = search.toLowerCase();
     const daysLeft = l.expiry_date ? Math.ceil((new Date(l.expiry_date).getTime() - Date.now()) / 86400000) : null;
-    const assignment = currentLicenseAssignment(l.id);
-    const employeeName = (assignment?.employee as Employee | null)?.name ?? '';
-    const assetSerial = (assignment?.asset as Asset | null)?.serial_number ?? '';
+    const activeAssignments = currentLicenseAssignments(l.id);
+    const employeeName = activeAssignments.map(assignment => (assignment.employee as Employee | null)?.name ?? '').join(' ');
+    const assetSerial = activeAssignments.map(assignment => (assignment.asset as Asset | null)?.serial_number ?? '').join(' ');
     const matchesStatus = !licenseFilter
       || (licenseFilter === 'assigned' && l.seats_used > 0)
       || (licenseFilter === 'expiring' && daysLeft !== null && daysLeft >= 0 && daysLeft <= 30)
@@ -112,6 +113,10 @@ export function Software() {
 
   function currentLicenseAssignment(licenseId: string) {
     return licenseAssignments.find(a => a.license_id === licenseId) ?? null;
+  }
+
+  function currentLicenseAssignments(licenseId: string) {
+    return licenseAssignments.filter(assignment => assignment.license_id === licenseId);
   }
 
   function openLicenseModal(license: License) {
@@ -279,20 +284,96 @@ export function Software() {
 
   function handleExport() {
     if (tab === 'software') {
-      exportCSV('software.csv', filteredSw, [
+      const rows = filteredSw.map(item => {
+        const itemLicenses = licenses.filter(license => license.software_id === item.id);
+        const itemLicenseIds = new Set(itemLicenses.map(license => license.id));
+        const assignments = licenseAssignments.filter(assignment => itemLicenseIds.has(assignment.license_id));
+        const expiries = itemLicenses.map(license => license.expiry_date).filter((date): date is string => Boolean(date)).sort();
+        return {
+          ...item,
+          license_records: itemLicenses.length,
+          total_seats: itemLicenses.reduce((total, license) => total + (license.seats ?? 1), 0),
+          used_seats: itemLicenses.reduce((total, license) => total + (license.seats_used ?? 0), 0),
+          available_seats: itemLicenses.reduce((total, license) => total + Math.max((license.seats ?? 1) - (license.seats_used ?? 0), 0), 0),
+          total_cost: itemLicenses.reduce((total, license) => total + (license.cost ?? 0), 0),
+          next_expiry: exportDate(expiries[0]),
+          assigned_people: [...new Set(assignments.map(assignment => assignment.employee?.name).filter(Boolean))].join(' | '),
+          assigned_assets: [...new Set(assignments.map(assignment => assignment.asset?.serial_number).filter(Boolean))].join(' | '),
+          created_formatted: exportDateTime(item.created_at),
+          updated_formatted: exportDateTime(item.updated_at),
+        };
+      });
+      exportCSV(datedCsvFilename('software-completo'), rows, [
+        { key: 'id', label: 'ID software' },
         { key: 'name', label: 'Nombre' },
         { key: 'vendor', label: 'Fabricante' },
         { key: 'category', label: 'Categoría' },
         { key: 'version', label: 'Versión' },
+        { key: 'notes', label: 'Notas' },
+        { key: 'license_records', label: 'Registros de licencia' },
+        { key: 'total_seats', label: 'Puestos totales' },
+        { key: 'used_seats', label: 'Puestos usados' },
+        { key: 'available_seats', label: 'Puestos libres' },
+        { key: 'total_cost', label: 'Coste total €' },
+        { key: 'next_expiry', label: 'Próximo vencimiento' },
+        { key: 'assigned_people', label: 'Personas asignadas' },
+        { key: 'assigned_assets', label: 'Activos asignados' },
+        { key: 'created_formatted', label: 'Creado' },
+        { key: 'updated_formatted', label: 'Actualizado' },
       ]);
+      showToast(`${rows.length} aplicaciones exportadas con resumen de licencias`);
     } else {
-      exportCSV('licencias.csv', filteredLic.map(l => ({ ...l, software_name: (l.software as { name?: string } | null)?.name })), [
+      const rows = filteredLic.map(license => {
+        const assignments = currentLicenseAssignments(license.id);
+        const softwareItem = license.software as SoftwareType | null | undefined;
+        const daysLeft = license.expiry_date ? Math.ceil((new Date(license.expiry_date).getTime() - Date.now()) / 86400000) : null;
+        return {
+          ...license,
+          software_name: softwareItem?.name ?? '',
+          software_vendor: softwareItem?.vendor ?? '',
+          license_type_label: LICENSE_TYPES.find(type => type.value === license.license_type)?.label ?? license.license_type,
+          status_label: daysLeft === null ? 'Sin vencimiento' : daysLeft < 0 ? 'Vencida' : daysLeft <= 30 ? 'Vence pronto' : license.seats_used > 0 ? 'Asignada' : 'Libre',
+          available_seats: Math.max((license.seats ?? 1) - (license.seats_used ?? 0), 0),
+          employee_names: assignments.map(assignment => assignment.employee?.name ?? '').filter(Boolean).join(' | '),
+          employee_emails: assignments.map(assignment => assignment.employee?.email ?? '').filter(Boolean).join(' | '),
+          employee_departments: assignments.map(assignment => assignment.employee?.department ?? '').filter(Boolean).join(' | '),
+          asset_serials: assignments.map(assignment => assignment.asset?.serial_number ?? '').filter(Boolean).join(' | '),
+          asset_details: assignments.map(assignment => joinExportValues([assignment.asset?.brand, assignment.asset?.model, assignment.asset?.location])).filter(Boolean).join(' || '),
+          assignment_dates: assignments.map(assignment => exportDateTime(assignment.assigned_at)).join(' | '),
+          assignment_notes: assignments.map(assignment => assignment.notes).filter(Boolean).join(' | '),
+          purchase_date_formatted: exportDate(license.purchase_date),
+          expiry_date_formatted: exportDate(license.expiry_date),
+          created_formatted: exportDateTime(license.created_at),
+          updated_formatted: exportDateTime(license.updated_at),
+        };
+      });
+      exportCSV(datedCsvFilename('licencias-completo'), rows, [
+        { key: 'id', label: 'ID licencia' },
         { key: 'software_name', label: 'Software' },
-        { key: 'license_type', label: 'Tipo' },
-        { key: 'seats_used', label: 'Asignada' },
-        { key: 'expiry_date', label: 'Vencimiento' },
+        { key: 'software_vendor', label: 'Fabricante' },
+        { key: 'software_id', label: 'ID software' },
+        { key: 'license_key', label: 'Clave de licencia' },
+        { key: 'license_type_label', label: 'Tipo' },
+        { key: 'status_label', label: 'Estado' },
+        { key: 'seats', label: 'Puestos totales' },
+        { key: 'seats_used', label: 'Puestos usados' },
+        { key: 'available_seats', label: 'Puestos libres' },
+        { key: 'employee_names', label: 'Asignada a personas' },
+        { key: 'employee_emails', label: 'Emails asignados' },
+        { key: 'employee_departments', label: 'Departamentos asignados' },
+        { key: 'asset_serials', label: 'Asignada a activos' },
+        { key: 'asset_details', label: 'Detalle activos' },
+        { key: 'assignment_dates', label: 'Fechas asignación' },
+        { key: 'assignment_notes', label: 'Notas asignación' },
+        { key: 'purchase_date_formatted', label: 'Fecha compra' },
+        { key: 'expiry_date_formatted', label: 'Vencimiento' },
         { key: 'cost', label: 'Coste €' },
+        { key: 'vendor_contact', label: 'Contacto proveedor' },
+        { key: 'notes', label: 'Notas' },
+        { key: 'created_formatted', label: 'Creado' },
+        { key: 'updated_formatted', label: 'Actualizado' },
       ]);
+      showToast(`${rows.length} licencias exportadas con asignaciones completas`);
     }
   }
 
@@ -343,7 +424,7 @@ export function Software() {
         )}
         <div className="ml-auto flex items-center gap-2">
           <button onClick={handleExport} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors">
-            <Download size={15} /> CSV
+            <Download size={15} /> CSV completo
           </button>
           {tab === 'software' ? (
             <button onClick={() => { setEditingSw({ ...emptySw }); setSwModalOpen(true); }} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">

@@ -1,18 +1,39 @@
-export function exportCSV(filename: string, rows: object[], headers: { key: string; label: string }[]) {
-  const escape = (v: unknown) => {
-    const s = v == null ? '' : String(v);
-    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-      return `"${s.replace(/"/g, '""')}"`;
-    }
-    return s;
-  };
+export interface CsvColumn<T extends object> {
+  key?: keyof T | string;
+  label: string;
+  value?: (row: T) => unknown;
+}
 
-  const headerRow = headers.map(h => escape(h.label)).join(',');
+function cellValue(value: unknown) {
+  if (value == null) return '';
+  if (typeof value === 'boolean') return value ? 'Sí' : 'No';
+  if (Array.isArray(value)) return value.join(' | ');
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function escapeCell(value: unknown) {
+  const isText = typeof value === 'string';
+  let text = cellValue(value);
+  // Avoid spreadsheet formula execution when a CSV is opened in Excel or LibreOffice.
+  if (isText && /^[\t\r ]*[=+\-@]/.test(text)) text = `'${text}`;
+  if (text.includes(',') || text.includes('"') || text.includes('\n') || text.includes('\r')) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+export function buildCSV<T extends object>(rows: T[], columns: CsvColumn<T>[]) {
+  const headerRow = columns.map(column => escapeCell(column.label)).join(',');
   const dataRows = rows.map(row => {
     const record = row as Record<string, unknown>;
-    return headers.map(h => escape(record[h.key])).join(',');
+    return columns.map(column => escapeCell(column.value ? column.value(row) : record[String(column.key ?? '')])).join(',');
   });
-  const csv = [headerRow, ...dataRows].join('\n');
+  return [headerRow, ...dataRows].join('\r\n');
+}
+
+export function exportCSV<T extends object>(filename: string, rows: T[], columns: CsvColumn<T>[]) {
+  const csv = buildCSV(rows, columns);
 
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -24,28 +45,40 @@ export function exportCSV(filename: string, rows: object[], headers: { key: stri
 }
 
 export function parseCSV(text: string): Record<string, string>[] {
-  const lines = text.trim().split('\n');
-  if (lines.length < 2) return [];
+  const source = text.replace(/^\uFEFF/, '');
+  const firstLine = source.split(/\r?\n/, 1)[0] ?? '';
+  const delimiter = (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ';' : ',';
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let value = '';
+  let quoted = false;
 
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-
-  return lines.slice(1).map(line => {
-    const values: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
-        else inQuotes = !inQuotes;
-      } else if (ch === ',' && !inQuotes) {
-        values.push(current.trim());
-        current = '';
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === '"') {
+      if (quoted && source[index + 1] === '"') {
+        value += '"';
+        index += 1;
       } else {
-        current += ch;
+        quoted = !quoted;
       }
+    } else if (char === delimiter && !quoted) {
+      row.push(value.trim());
+      value = '';
+    } else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && source[index + 1] === '\n') index += 1;
+      row.push(value.trim());
+      if (row.some(cell => cell.length > 0)) rows.push(row);
+      row = [];
+      value = '';
+    } else {
+      value += char;
     }
-    values.push(current.trim());
-    return Object.fromEntries(headers.map((h, i) => [h, values[i] ?? '']));
-  });
+  }
+  row.push(value.trim());
+  if (row.some(cell => cell.length > 0)) rows.push(row);
+  if (rows.length < 2) return [];
+
+  const headers = rows[0];
+  return rows.slice(1).map(values => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ''])));
 }

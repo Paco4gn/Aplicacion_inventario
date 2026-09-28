@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, CheckCircle, Download, CheckSquare, Square, X, Se
 import { api } from '../lib/api';
 import { logAction } from '../lib/audit';
 import { exportCSV } from '../lib/csv';
+import { datedCsvFilename, exportDateTime, joinExportValues } from '../lib/exportFormat';
 import { useToast } from '../contexts/ToastContext';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
@@ -93,6 +94,7 @@ export function Incidents() {
   const [selected, setSelected] = useState<Incident | null>(null);
   const [recipients, setRecipients] = useState<IncidentNotificationRecipient[]>([]);
   const [comments, setComments] = useState<IncidentComment[]>([]);
+  const [allComments, setAllComments] = useState<IncidentComment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [notificationReady, setNotificationReady] = useState(true);
 
@@ -100,7 +102,7 @@ export function Incidents() {
   const [bulkStatus, setBulkStatus] = useState<Incident['status']>('closed');
 
   async function load() {
-    const [{ data: inc, error: incError }, { data: a }, { data: e }, { data: allEmployees }, { data: notificationRecipients }, { data: currentAssignments }] = await Promise.all([
+    const [{ data: inc, error: incError }, { data: a }, { data: e }, { data: allEmployees }, { data: notificationRecipients }, { data: currentAssignments }, { data: incidentComments }] = await Promise.all([
       api.from('incidents')
         .select('*, asset:assets(serial_number,brand,model)')
         .order('opened_at', { ascending: false }),
@@ -109,6 +111,7 @@ export function Incidents() {
       api.from('employees').select('id,name,email').order('name'),
       api.from('incident_notification_recipients').select('email,name,enabled').eq('enabled', true),
       api.from('asset_assignments').select('asset_id,employee_id').is('returned_at', null),
+      api.from('incident_comments').select('*').order('created_at', { ascending: true }),
     ]);
     if (incError) {
       showToast(`Error cargando incidencias: ${incError.message}`, 'error');
@@ -133,6 +136,7 @@ export function Incidents() {
     setEmployeeByAsset(Object.fromEntries((currentAssignments ?? [])
       .filter((assignment: { asset_id: string; employee_id: string | null }) => assignment.asset_id && assignment.employee_id)
       .map((assignment: { asset_id: string; employee_id: string }) => [assignment.asset_id, assignment.employee_id])));
+    setAllComments(incidentComments ?? []);
     setLoading(false);
   }
 
@@ -233,7 +237,10 @@ export function Incidents() {
       showToast('No se pudo guardar el comentario', 'error');
       return;
     }
-    if (data) setComments(previous => [...previous, data]);
+    if (data) {
+      setComments(previous => [...previous, data]);
+      setAllComments(previous => [...previous, data]);
+    }
     setNewComment('');
     await logAction('commented', 'incident', selected.id, selected.title);
     showToast('Comentario añadido');
@@ -366,17 +373,60 @@ export function Incidents() {
   }
 
   function handleExport() {
-    exportCSV('incidencias.csv', filtered, [
+    const rows = filtered.map(incident => {
+      const asset = incident.asset as Asset | null | undefined;
+      const employee = incident.employee as Employee | null | undefined;
+      const assignedTo = incident.assigned_to as Employee | null | undefined;
+      const incidentComments = allComments.filter(comment => comment.incident_id === incident.id);
+      return {
+        ...incident,
+        priority_label: PRIORITIES.find(priority => priority.value === incident.priority)?.label ?? incident.priority,
+        status_label: STATUSES.find(status => status.value === incident.status)?.label ?? incident.status,
+        asset_serial: asset?.serial_number ?? '',
+        asset_detail: joinExportValues([asset?.brand, asset?.model, asset?.location]),
+        employee_name: employee?.name ?? '',
+        employee_email: employee?.email ?? '',
+        employee_department: employee?.department ?? '',
+        assigned_to_name_export: assignedTo?.name ?? incident.assigned_to_name ?? '',
+        assigned_to_email_export: assignedTo?.email ?? incident.assigned_to_email ?? '',
+        comments_count: incidentComments.length,
+        comments_export: incidentComments.map(comment => `${exportDateTime(comment.created_at)} · ${comment.author_name || 'informatica'} · ${comment.body}`).join(' || '),
+        due_formatted: exportDateTime(incident.due_at),
+        started_formatted: exportDateTime(incident.started_at),
+        resolved_formatted: exportDateTime(incident.resolved_at),
+        opened_formatted: exportDateTime(incident.opened_at),
+        closed_formatted: exportDateTime(incident.closed_at),
+        created_formatted: exportDateTime(incident.created_at),
+        updated_formatted: exportDateTime(incident.updated_at),
+      };
+    });
+    exportCSV(datedCsvFilename('incidencias-completo'), rows, [
+      { key: 'id', label: 'ID incidencia' },
       { key: 'title', label: 'Título' },
-      { key: 'priority', label: 'Prioridad' },
-      { key: 'status', label: 'Estado' },
-      { key: 'assigned_to_email', label: 'Asignado a' },
+      { key: 'priority_label', label: 'Prioridad' },
+      { key: 'status_label', label: 'Estado' },
+      { key: 'asset_serial', label: 'Activo Nº Serie' },
+      { key: 'asset_detail', label: 'Activo detalle' },
+      { key: 'asset_id', label: 'ID activo' },
+      { key: 'employee_name', label: 'Empleado afectado' },
+      { key: 'employee_email', label: 'Email empleado' },
+      { key: 'employee_department', label: 'Departamento empleado' },
+      { key: 'employee_id', label: 'ID empleado' },
+      { key: 'assigned_to_name_export', label: 'Responsable' },
+      { key: 'assigned_to_email_export', label: 'Email responsable' },
       { key: 'description', label: 'Descripción' },
       { key: 'resolution', label: 'Resolución' },
-      { key: 'due_at', label: 'Fecha limite' },
-      { key: 'opened_at', label: 'Apertura' },
-      { key: 'closed_at', label: 'Cierre' },
+      { key: 'comments_count', label: 'Nº comentarios' },
+      { key: 'comments_export', label: 'Seguimiento completo' },
+      { key: 'due_formatted', label: 'Fecha límite' },
+      { key: 'started_formatted', label: 'Inicio trabajo' },
+      { key: 'resolved_formatted', label: 'Resolución fecha' },
+      { key: 'opened_formatted', label: 'Apertura' },
+      { key: 'closed_formatted', label: 'Cierre' },
+      { key: 'created_formatted', label: 'Creado' },
+      { key: 'updated_formatted', label: 'Actualizado' },
     ]);
+    showToast(`${rows.length} incidencias exportadas con activos, responsables y seguimiento`);
   }
 
   return (
@@ -422,7 +472,7 @@ export function Incidents() {
             <Settings size={15} /> Avisos
           </button>
           <button onClick={handleExport} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:border-gray-300 text-sm font-medium px-3 py-2 rounded-lg transition-colors">
-            <Download size={15} /> CSV
+            <Download size={15} /> CSV completo
           </button>
           <button
             onClick={() => { setEditing(emptyIncident); setModalOpen(true); }}
