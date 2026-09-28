@@ -12,24 +12,27 @@ function cellValue(value: unknown) {
   return String(value);
 }
 
-function escapeCell(value: unknown) {
+const EXCEL_DELIMITER = ';';
+
+function escapeCell(value: unknown, delimiter = EXCEL_DELIMITER) {
   const isText = typeof value === 'string';
   let text = cellValue(value);
   // Avoid spreadsheet formula execution when a CSV is opened in Excel or LibreOffice.
   if (isText && /^[\t\r ]*[=+\-@]/.test(text)) text = `'${text}`;
-  if (text.includes(',') || text.includes('"') || text.includes('\n') || text.includes('\r')) {
+  if (text.includes(delimiter) || text.includes(',') || text.includes('"') || text.includes('\n') || text.includes('\r')) {
     return `"${text.replace(/"/g, '""')}"`;
   }
   return text;
 }
 
 export function buildCSV<T extends object>(rows: T[], columns: CsvColumn<T>[]) {
-  const headerRow = columns.map(column => escapeCell(column.label)).join(',');
+  const headerRow = columns.map(column => escapeCell(column.label)).join(EXCEL_DELIMITER);
   const dataRows = rows.map(row => {
     const record = row as Record<string, unknown>;
-    return columns.map(column => escapeCell(column.value ? column.value(row) : record[String(column.key ?? '')])).join(',');
+    return columns.map(column => escapeCell(column.value ? column.value(row) : record[String(column.key ?? '')])).join(EXCEL_DELIMITER);
   });
-  return [headerRow, ...dataRows].join('\r\n');
+  // Excel reads this directive before applying the computer's regional list separator.
+  return [`sep=${EXCEL_DELIMITER}`, headerRow, ...dataRows].join('\r\n');
 }
 
 export function exportCSV<T extends object>(filename: string, rows: T[], columns: CsvColumn<T>[]) {
@@ -45,9 +48,13 @@ export function exportCSV<T extends object>(filename: string, rows: T[], columns
 }
 
 export function parseCSV(text: string): Record<string, string>[] {
-  const source = text.replace(/^\uFEFF/, '');
+  let source = text.replace(/^\uFEFF/, '');
+  const separatorDirective = source.match(/^sep=(.)\r?\n/i);
+  const explicitDelimiter = separatorDirective?.[1];
+  if (separatorDirective) source = source.slice(separatorDirective[0].length);
   const firstLine = source.split(/\r?\n/, 1)[0] ?? '';
-  const delimiter = (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ';' : ',';
+  const delimiter = explicitDelimiter
+    ?? ((firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ';' : ',');
   const rows: string[][] = [];
   let row: string[] = [];
   let value = '';

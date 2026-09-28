@@ -11,7 +11,8 @@ describe('CSV utilities', () => {
         { label: 'Empleado', value: row => row.employee.name },
       ],
     );
-    expect(csv).toBe('Activo,En uso,Empleado\r\n"Equipo, principal",Sí,Ana');
+    expect(csv).toBe('sep=;\r\nActivo;En uso;Empleado\r\n"Equipo, principal";Sí;Ana');
+    expect(parseCSV(csv)).toEqual([{ Activo: 'Equipo, principal', 'En uso': 'Sí', Empleado: 'Ana' }]);
   });
 
   it('prevents formulas and parses quoted multiline values', () => {
@@ -25,5 +26,11 @@ describe('CSV utilities', () => {
 
   it('accepts semicolon-delimited imports', () => {
     expect(parseCSV('Nombre;Notas\r\nPC-01;Listo')).toEqual([{ Nombre: 'PC-01', Notas: 'Listo' }]);
+  });
+
+  it('keeps compatibility with older comma-delimited imports', () => {
+    expect(parseCSV('Nombre,Notas\r\nPC-01,"Con monitor, teclado y ratón"')).toEqual([
+      { Nombre: 'PC-01', Notas: 'Con monitor, teclado y ratón' },
+    ]);
   });
 });
