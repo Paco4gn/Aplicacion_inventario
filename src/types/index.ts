@@ -186,6 +186,50 @@ export interface AuditLog {
   created_at: string;
 }
 
+export interface AIProcess {
+  id: string; name: string; department: string; owner: string; description: string; current_pain: string;
+  frequency: string; monthly_volume: number; minutes_per_case: number; impact_score: number; viability_score: number;
+  opportunity_status: string; notes: string; created_at: string; updated_at: string;
+}
+
+export interface AIUseCase {
+  id: string; code: string; title: string; process_id: string | null; category: string; objective: string;
+  impact_score: number; viability_score: number; priority_score: number; status: string; responsible: string;
+  start_date: string | null; end_date: string | null; risk_level: string; data_sensitivity: string;
+  ethics_review: boolean; notes: string; created_at: string; updated_at: string;
+}
+
+export interface AIWorkItem {
+  id: string; code: string; title: string; phase: string; subtasks: string; duration_days: number;
+  start_date: string; end_date: string; status: string; progress: number; owner: string; depends_on: string;
+  use_case_id: string | null; notes: string; created_at: string; updated_at: string;
+}
+
+export interface AIPilot {
+  id: string; use_case_id: string | null; name: string; hypothesis: string; architecture: string; model_name: string;
+  tools: string; status: string; version: string; repository_url: string; demo_url: string; baseline_minutes: number;
+  current_minutes: number; accuracy: number; satisfaction: number; monthly_runs: number; monthly_cost: number;
+  incidents_count: number; last_evaluation_at: string | null; notes: string; created_at: string; updated_at: string;
+}
+
+export interface AIIntegration {
+  id: string; pilot_id: string | null; system_name: string; integration_type: string; data_direction: string;
+  environment: string; status: string; owner: string; last_tested_at: string | null; notes: string;
+  created_at: string; updated_at: string;
+}
+
+export interface AIKpi {
+  id: string; use_case_id: string | null; pilot_id: string | null; name: string; unit: string;
+  baseline_value: number; target_value: number; current_value: number; measurement_date: string | null;
+  evidence_url: string; notes: string; created_at: string; updated_at: string;
+}
+
+export interface AIDeliverable {
+  id: string; code: string; title: string; phase: string; deliverable_type: string; status: string;
+  due_date: string | null; completed_at: string | null; owner: string; file_url: string; notes: string;
+  created_at: string; updated_at: string;
+}
+
 export interface DashboardStats {
   totalAssets: number;
   activeAssets: number;

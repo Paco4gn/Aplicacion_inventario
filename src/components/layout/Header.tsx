@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, User, Search, Monitor, Users, AlertTriangle, X, LogOut, BookOpen, Package, CheckCircle, RefreshCw } from 'lucide-react';
+import { Bell, User, Search, Monitor, Users, AlertTriangle, X, LogOut, BookOpen, Package, CheckCircle, RefreshCw, BrainCircuit } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { api, apiRequest } from '../../lib/api';
 import { useAlertCounts } from '../../hooks/useAlertCounts';
 
 const pageTitles: Record<string, string> = {
   dashboard: 'Dashboard',
+  ai4feval: 'Proyecto AI4FEVAL',
   assets: 'Gestión de Activos',
   employees: 'Empleados',
   incidents: 'Incidencias',
@@ -20,16 +21,16 @@ interface SearchResult {
   id: string;
   label: string;
   sublabel: string;
-  type: 'asset' | 'employee' | 'incident' | 'software' | 'license' | 'component';
-  page: 'assets' | 'employees' | 'incidents' | 'software' | 'components';
+  type: 'asset' | 'employee' | 'incident' | 'software' | 'license' | 'component' | 'ai';
+  page: 'assets' | 'employees' | 'incidents' | 'software' | 'components' | 'ai4feval';
 }
 
 interface Notification {
   id: string;
-  type: 'incident' | 'license' | 'stock' | 'warranty' | 'overdue';
+  type: 'incident' | 'license' | 'stock' | 'warranty' | 'overdue' | 'project';
   title: string;
   body: string;
-  page: 'incidents' | 'software' | 'components' | 'assets';
+  page: 'incidents' | 'software' | 'components' | 'assets' | 'ai4feval';
 }
 
 export function Header() {
@@ -49,7 +50,7 @@ export function Header() {
 
   const [serviceOnline, setServiceOnline] = useState<boolean | null>(null);
 
-  const totalAlerts = alertCounts.openIncidents + alertCounts.overdueIncidents + alertCounts.expiringLicenses + alertCounts.expiringWarranties + alertCounts.lowStock;
+  const totalAlerts = alertCounts.openIncidents + alertCounts.overdueIncidents + alertCounts.expiringLicenses + alertCounts.expiringWarranties + alertCounts.lowStock + alertCounts.overdueProjectItems;
 
   useEffect(() => {
     let active = true;
@@ -102,6 +103,9 @@ export function Header() {
     if (alertCounts.expiringWarranties > 0) {
       list.push({ id: 'warranties', type: 'warranty', title: 'Garantías por vencer', body: `${alertCounts.expiringWarranties} activo${alertCounts.expiringWarranties > 1 ? 's' : ''} pierde${alertCounts.expiringWarranties > 1 ? 'n' : ''} la garantía en 30 días`, page: 'assets' });
     }
+    if (alertCounts.overdueProjectItems > 0) {
+      list.push({ id: 'project', type: 'project', title: 'AI4FEVAL requiere atención', body: `${alertCounts.overdueProjectItems} actividad${alertCounts.overdueProjectItems > 1 ? 'es' : ''} o entregable${alertCounts.overdueProjectItems > 1 ? 's' : ''} fuera de plazo`, page: 'ai4feval' });
+    }
     setNotifications(list);
   }, [alertCounts]);
 
@@ -125,13 +129,15 @@ export function Header() {
   async function doSearch(q: string) {
     setSearchLoading(true);
     const pattern = `%${q}%`;
-    const [{ data: assets }, { data: employees }, { data: incidents }, { data: software }, { data: licenses }, { data: components }] = await Promise.all([
+    const [{ data: assets }, { data: employees }, { data: incidents }, { data: software }, { data: licenses }, { data: components }, { data: aiCases }, { data: aiProcesses }] = await Promise.all([
       api.from('assets').select('id,serial_number,name,brand,model,asset_type,location').or(`serial_number.ilike.${pattern},name.ilike.${pattern},brand.ilike.${pattern},model.ilike.${pattern},location.ilike.${pattern},ip_address.ilike.${pattern},mac_address.ilike.${pattern},imei.ilike.${pattern}`).limit(4),
       api.from('employees').select('id,name,department').ilike('name', pattern).limit(4),
       api.from('incidents').select('id,title,status').ilike('title', pattern).limit(4),
       api.from('software').select('id,name,vendor,version').or(`name.ilike.${pattern},vendor.ilike.${pattern},version.ilike.${pattern}`).limit(4),
       api.from('licenses').select('id,license_key,license_type').ilike('license_key', pattern).limit(4),
       api.from('components').select('id,name,brand,model,stock').or(`name.ilike.${pattern},brand.ilike.${pattern},model.ilike.${pattern},location.ilike.${pattern}`).limit(4),
+      api.from('ai_use_cases').select('id,code,title,status').or(`code.ilike.${pattern},title.ilike.${pattern},objective.ilike.${pattern}`).limit(4),
+      api.from('ai_processes').select('id,name,department,opportunity_status').or(`name.ilike.${pattern},department.ilike.${pattern},description.ilike.${pattern}`).limit(4),
     ]);
 
     const r: SearchResult[] = [
@@ -150,6 +156,8 @@ export function Header() {
       ...(software ?? []).map((s: { id: string; name: string; vendor: string; version: string }) => ({ id: s.id, label: s.name, sublabel: `${s.vendor || 'Software'} · ${s.version || 'sin versión'}`, type: 'software' as const, page: 'software' as const })),
       ...(licenses ?? []).map((l: { id: string; license_key: string; license_type: string }) => ({ id: l.id, label: l.license_key, sublabel: `Licencia · ${l.license_type || 'sin tipo'}`, type: 'license' as const, page: 'software' as const })),
       ...(components ?? []).map((c: { id: string; name: string; brand: string; model: string; stock: number }) => ({ id: c.id, label: c.name, sublabel: `${c.brand || ''} ${c.model || ''} · Stock ${c.stock}`, type: 'component' as const, page: 'components' as const })),
+      ...(aiCases ?? []).map((item: { id: string; code: string; title: string; status: string }) => ({ id: item.id, label: `${item.code} · ${item.title}`, sublabel: `Caso IA · ${item.status}`, type: 'ai' as const, page: 'ai4feval' as const })),
+      ...(aiProcesses ?? []).map((item: { id: string; name: string; department: string; opportunity_status: string }) => ({ id: item.id, label: item.name, sublabel: `Proceso · ${item.department || item.opportunity_status}`, type: 'ai' as const, page: 'ai4feval' as const })),
     ];
 
     setResults(r);
@@ -168,7 +176,7 @@ export function Header() {
     setBellOpen(false);
   }
 
-  const searchIconMap = { asset: Monitor, employee: Users, incident: AlertTriangle, software: BookOpen, license: BookOpen, component: Package };
+  const searchIconMap = { asset: Monitor, employee: Users, incident: AlertTriangle, software: BookOpen, license: BookOpen, component: Package, ai: BrainCircuit };
 
   const notifIconMap = {
     incident: { icon: AlertTriangle, bg: 'bg-red-50', color: 'text-red-500' },
@@ -176,6 +184,7 @@ export function Header() {
     stock: { icon: Package, bg: 'bg-orange-50', color: 'text-orange-500' },
     warranty: { icon: Monitor, bg: 'bg-violet-50', color: 'text-violet-500' },
     overdue: { icon: AlertTriangle, bg: 'bg-rose-50', color: 'text-rose-600' },
+    project: { icon: BrainCircuit, bg: 'bg-violet-50', color: 'text-violet-600' },
   };
 
   const displayName = currentUser.name || currentUser.email.split('@')[0] || 'Usuario';

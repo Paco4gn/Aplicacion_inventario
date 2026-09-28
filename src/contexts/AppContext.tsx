@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
 import type { AppUser } from '../lib/api';
 
-export type Page = 'dashboard' | 'assets' | 'employees' | 'incidents' | 'software' | 'components' | 'audit' | 'administration' | 'recycle';
+export type Page = 'dashboard' | 'ai4feval' | 'assets' | 'employees' | 'incidents' | 'software' | 'components' | 'audit' | 'administration' | 'recycle';
 
 interface AppContextValue {
   currentPage: Page;

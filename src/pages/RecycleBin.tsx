@@ -6,7 +6,7 @@ import { Badge } from '../components/ui/Badge';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 
 type RecycleItem = { id: string; table_name: string; record_id: string; display_name: string; deleted_by: string; deleted_at: string };
-const entityLabels: Record<string, string> = { assets: 'Activo', employees: 'Empleado', incidents: 'Incidencia', software: 'Software', licenses: 'Licencia', components: 'Componente', audit_logs: 'Auditoría', incident_notification_recipients: 'Destinatario' };
+const entityLabels: Record<string, string> = { assets: 'Activo', employees: 'Empleado', incidents: 'Incidencia', software: 'Software', licenses: 'Licencia', components: 'Componente', audit_logs: 'Auditoría', incident_notification_recipients: 'Destinatario', ai_processes: 'Proceso IA', ai_use_cases: 'Caso de uso IA', ai_work_items: 'Actividad AI4FEVAL', ai_pilots: 'Piloto IA', ai_integrations: 'Integración IA', ai_kpis: 'Indicador IA', ai_deliverables: 'Entregable AI4FEVAL' };
 
 export function RecycleBin() {
   const { showToast } = useToast();

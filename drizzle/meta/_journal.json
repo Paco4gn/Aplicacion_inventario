@@ -22,6 +22,13 @@
       "when": 1790589600000,
       "tag": "0002_secure_operations",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790592000000,
+      "tag": "0003_ai4feval_workspace",
+      "breakpoints": true
     }
   ]
 }

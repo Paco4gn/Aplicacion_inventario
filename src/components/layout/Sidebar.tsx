@@ -10,6 +10,7 @@ import {
   Cpu,
   Settings,
   Trash2,
+  BrainCircuit,
 } from 'lucide-react';
 import { useApp, type Page } from '../../contexts/AppContext';
 import { useAlertCounts } from '../../hooks/useAlertCounts';
@@ -27,6 +28,7 @@ export function Sidebar() {
 
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'ai4feval', label: 'AI4FEVAL', icon: BrainCircuit, badge: alerts.overdueProjectItems },
     { id: 'assets', label: 'Activos', icon: Monitor },
     { id: 'employees', label: 'Empleados', icon: Users },
     { id: 'incidents', label: 'Incidencias', icon: AlertTriangle, badge: alerts.openIncidents },

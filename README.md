@@ -41,6 +41,21 @@ Desde **Administración** se gestionan los usuarios y las copias diarias. La pap
 
 La pantalla de activos permite previsualizar una importación CSV antes de aplicarla, cambiar estado o ubicación por lotes, consultar el historial completo, imprimir etiquetas QR y generar actas de entrega PDF con firma. La aplicación también se puede instalar como PWA en ordenadores y móviles.
 
+## Espacio AI4FEVAL
+
+El módulo **AI4FEVAL** convierte la memoria del programa Atraigo Talento en un espacio de ejecución y seguimiento:
+
+- mapa de procesos y cálculo de oportunidades de automatización;
+- cartera de casos de uso priorizada por impacto y viabilidad;
+- control de riesgos, sensibilidad de datos y revisión ética;
+- plan Gantt 2026 con las actividades y fechas oficiales;
+- ficha técnica y evaluación de prototipos y agentes IA;
+- integraciones con ERP, CRM, correo, documentación y otros sistemas;
+- indicadores con línea base, objetivo, resultado y evidencia;
+- entregables, guías, prototipos y actividades de transferencia.
+
+El Excel completo añade hojas específicas de procesos, casos de uso, plan, pilotos, integraciones, indicadores y entregables. Las copias diarias y la papelera incluyen también estos datos.
+
 ## Inventario automático de equipos Windows
 
 El navegador no puede leer CPU, RAM, disco, IP o MAC. El script `scripts/collect-windows-inventory.ps1` genera un CSV que se puede importar desde **Activos**:
