@@ -15,29 +15,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install
-        run: npm ci
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Build
-        run: npm run build
-        env:
-          VITE_SUPABASE_URL: https://dwudqkzkwsqwxshumlza.supabase.co
-          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3dWRxa3prd3Nxd3hzaHVtbHphIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNDM0NTYsImV4cCI6MjA5MjgxOTQ1Nn0.uJF1whOlEYgaNeXy4uJ1mXR6MONxuXSGdecJAyYWObo
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -45,15 +30,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: .github/pages
 
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
