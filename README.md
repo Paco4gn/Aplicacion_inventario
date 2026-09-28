@@ -4,6 +4,12 @@ Aplicación de gestión de activos, empleados, incidencias, licencias, component
 
 La aplicación usa React y TypeScript en la interfaz, Cloudflare Workers para la API y D1 para los datos. La interfaz, la API y la base se despliegan juntas, sin depender de un proyecto Supabase que pueda pausarse.
 
+## Aplicación publicada
+
+La dirección estable es [paco4gn.github.io/Aplicacion_inventario](https://paco4gn.github.io/Aplicacion_inventario/). GitHub Pages conserva ese punto de entrada y abre el servicio que ejecuta la interfaz, la API y D1.
+
+La migración inicial conserva los registros del proyecto anterior mediante una importación privada durante el despliegue. Los datos del inventario y sus copias de seguridad no se guardan en este repositorio público.
+
 ## Puesta en marcha local
 
 Requisitos: Node.js 22 o superior.
