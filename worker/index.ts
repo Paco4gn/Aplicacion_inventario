@@ -69,34 +69,6 @@ const tableDefinitions = {
     columns: ['id', 'component_id', 'movement_type', 'quantity', 'reason', 'asset_id', 'moved_at'],
     booleans: [], json: [], created: false, updated: false,
   },
-  ai_processes: {
-    columns: ['id', 'name', 'department', 'owner', 'description', 'current_pain', 'frequency', 'monthly_volume', 'minutes_per_case', 'impact_score', 'viability_score', 'opportunity_status', 'notes', 'created_at', 'updated_at'],
-    booleans: [], json: [], created: true, updated: true,
-  },
-  ai_use_cases: {
-    columns: ['id', 'code', 'title', 'process_id', 'category', 'objective', 'impact_score', 'viability_score', 'priority_score', 'status', 'responsible', 'start_date', 'end_date', 'risk_level', 'data_sensitivity', 'ethics_review', 'notes', 'created_at', 'updated_at'],
-    booleans: ['ethics_review'], json: [], created: true, updated: true,
-  },
-  ai_work_items: {
-    columns: ['id', 'code', 'title', 'phase', 'subtasks', 'duration_days', 'start_date', 'end_date', 'status', 'progress', 'owner', 'depends_on', 'use_case_id', 'notes', 'created_at', 'updated_at'],
-    booleans: [], json: [], created: true, updated: true,
-  },
-  ai_pilots: {
-    columns: ['id', 'use_case_id', 'name', 'hypothesis', 'architecture', 'model_name', 'tools', 'status', 'version', 'repository_url', 'demo_url', 'baseline_minutes', 'current_minutes', 'accuracy', 'satisfaction', 'monthly_runs', 'monthly_cost', 'incidents_count', 'last_evaluation_at', 'notes', 'created_at', 'updated_at'],
-    booleans: [], json: [], created: true, updated: true,
-  },
-  ai_integrations: {
-    columns: ['id', 'pilot_id', 'system_name', 'integration_type', 'data_direction', 'environment', 'status', 'owner', 'last_tested_at', 'notes', 'created_at', 'updated_at'],
-    booleans: [], json: [], created: true, updated: true,
-  },
-  ai_kpis: {
-    columns: ['id', 'use_case_id', 'pilot_id', 'name', 'unit', 'baseline_value', 'target_value', 'current_value', 'measurement_date', 'evidence_url', 'notes', 'created_at', 'updated_at'],
-    booleans: [], json: [], created: true, updated: true,
-  },
-  ai_deliverables: {
-    columns: ['id', 'code', 'title', 'phase', 'deliverable_type', 'status', 'due_date', 'completed_at', 'owner', 'file_url', 'notes', 'created_at', 'updated_at'],
-    booleans: [], json: [], created: true, updated: true,
-  },
   audit_logs: {
     columns: ['id', 'action', 'entity_type', 'entity_id', 'entity_name', 'details', 'performed_by', 'created_at'],
     booleans: [], json: ['details'], created: true, updated: false,
@@ -120,13 +92,6 @@ const nullDefaults: Partial<Record<TableName, DataRecord>> = {
   license_assignments: { notes: '' },
   components: { component_type: '', brand: '', model: '', stock: 0, min_stock: 1, location: '', notes: '' },
   component_movements: { movement_type: 'in', quantity: 1, reason: '' },
-  ai_processes: { department: '', owner: '', description: '', current_pain: '', frequency: '', monthly_volume: 0, minutes_per_case: 0, impact_score: 3, viability_score: 3, opportunity_status: 'discovered', notes: '' },
-  ai_use_cases: { code: '', category: 'assistant', objective: '', impact_score: 3, viability_score: 3, priority_score: 9, status: 'idea', responsible: '', risk_level: 'medium', data_sensitivity: 'internal', ethics_review: 0, notes: '' },
-  ai_work_items: { phase: '', subtasks: '', duration_days: 0, status: 'planned', progress: 0, owner: '', depends_on: '', notes: '' },
-  ai_pilots: { hypothesis: '', architecture: '', model_name: '', tools: '', status: 'design', version: '0.1', repository_url: '', demo_url: '', baseline_minutes: 0, current_minutes: 0, accuracy: 0, satisfaction: 0, monthly_runs: 0, monthly_cost: 0, incidents_count: 0, notes: '' },
-  ai_integrations: { integration_type: 'api', data_direction: 'bidirectional', environment: 'test', status: 'planned', owner: '', notes: '' },
-  ai_kpis: { unit: '%', baseline_value: 0, target_value: 0, current_value: 0, evidence_url: '', notes: '' },
-  ai_deliverables: { code: '', phase: '', deliverable_type: 'document', status: 'planned', owner: '', file_url: '', notes: '' },
   audit_logs: { entity_name: '', details: '{}', performed_by: 'system' },
 };
 
@@ -257,7 +222,7 @@ function compileWhere(table: TableName, filters: Filter[]) {
         bindings.push(...values);
       }
     } else {
-      const operators: Record<string, string> = { eq: '=', neq: '!=', gt: '>', gte: '>=', lt: '<', lte: '<=', ilike: 'LIKE' };
+      const operators: Record<string, string> = { eq: '=', neq: '!=', gte: '>=', lte: '<=', ilike: 'LIKE' };
       const operator = operators[filter.type];
       if (!operator) throw new Error('Operador no válido');
       clauses.push(filter.type === 'ilike' ? `LOWER("${column}") LIKE LOWER(?)` : `"${column}" ${operator} ?`);
@@ -408,10 +373,6 @@ function recycleDisplayName(table: TableName, record: DataRecord) {
   if (table === 'incidents') return String(record.title ?? record.id);
   if (table === 'licenses') return String(record.license_key ?? record.id);
   if (table === 'incident_notification_recipients') return String(record.email ?? record.id);
-  if (table === 'ai_use_cases' || table === 'ai_work_items' || table === 'ai_deliverables') return String(record.title ?? record.code ?? record.id);
-  if (table === 'ai_processes' || table === 'ai_pilots') return String(record.name ?? record.id);
-  if (table === 'ai_integrations') return String(record.system_name ?? record.id);
-  if (table === 'ai_kpis') return String(record.name ?? record.id);
   return String(record.entity_name ?? record.id);
 }
 
@@ -443,15 +404,6 @@ async function recycleRelatedRows(db: D1Database, table: TableName, id: string) 
     related.license_assignments = await queryAll(db, 'SELECT * FROM license_assignments WHERE license_id = ?', id);
   } else if (table === 'components') {
     related.component_movements = await queryAll(db, 'SELECT * FROM component_movements WHERE component_id = ?', id);
-  } else if (table === 'ai_processes') {
-    related.ai_use_cases = await queryAll(db, 'SELECT * FROM ai_use_cases WHERE process_id = ?', id);
-  } else if (table === 'ai_use_cases') {
-    related.ai_pilots = await queryAll(db, 'SELECT * FROM ai_pilots WHERE use_case_id = ?', id);
-    related.ai_kpis = await queryAll(db, 'SELECT * FROM ai_kpis WHERE use_case_id = ?', id);
-    related.ai_work_items = await queryAll(db, 'SELECT * FROM ai_work_items WHERE use_case_id = ?', id);
-  } else if (table === 'ai_pilots') {
-    related.ai_integrations = await queryAll(db, 'SELECT * FROM ai_integrations WHERE pilot_id = ?', id);
-    related.ai_kpis = await queryAll(db, 'SELECT * FROM ai_kpis WHERE pilot_id = ?', id);
   }
   return related;
 }
@@ -528,19 +480,6 @@ async function mutateRows(db: D1Database, table: TableName, payload: DataRecord,
       cleanup.push(db.prepare(`DELETE FROM license_assignments WHERE license_id IN (${placeholders})`).bind(...ids));
     } else if (table === 'components') {
       cleanup.push(db.prepare(`DELETE FROM component_movements WHERE component_id IN (${placeholders})`).bind(...ids));
-    } else if (table === 'ai_processes') {
-      cleanup.push(db.prepare(`UPDATE ai_use_cases SET process_id = NULL WHERE process_id IN (${placeholders})`).bind(...ids));
-    } else if (table === 'ai_use_cases') {
-      cleanup.push(
-        db.prepare(`UPDATE ai_pilots SET use_case_id = NULL WHERE use_case_id IN (${placeholders})`).bind(...ids),
-        db.prepare(`UPDATE ai_kpis SET use_case_id = NULL WHERE use_case_id IN (${placeholders})`).bind(...ids),
-        db.prepare(`UPDATE ai_work_items SET use_case_id = NULL WHERE use_case_id IN (${placeholders})`).bind(...ids),
-      );
-    } else if (table === 'ai_pilots') {
-      cleanup.push(
-        db.prepare(`UPDATE ai_integrations SET pilot_id = NULL WHERE pilot_id IN (${placeholders})`).bind(...ids),
-        db.prepare(`UPDATE ai_kpis SET pilot_id = NULL WHERE pilot_id IN (${placeholders})`).bind(...ids),
-      );
     }
     cleanup.push(db.prepare(`DELETE FROM "${table}"${where.sql}`).bind(...where.bindings));
     await db.batch(cleanup);
@@ -745,9 +684,7 @@ async function handleAgentSync(request: Request, env: AppEnv) {
 const migrationOrder: TableName[] = [
   'employees', 'assets', 'asset_assignments', 'software', 'licenses',
   'license_assignments', 'components', 'component_movements', 'incidents',
-  'incident_comments', 'incident_notification_recipients', 'ai_processes',
-  'ai_use_cases', 'ai_work_items', 'ai_pilots', 'ai_integrations', 'ai_kpis',
-  'ai_deliverables', 'audit_logs',
+  'incident_comments', 'incident_notification_recipients', 'audit_logs',
 ];
 
 async function createBackupPayload(db: D1Database) {

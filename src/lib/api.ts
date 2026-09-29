@@ -36,7 +36,7 @@ interface QueryResult<T = any> {
 }
 
 type Filter = {
-  type: 'eq' | 'neq' | 'is' | 'in' | 'not_is' | 'gt' | 'gte' | 'lt' | 'lte' | 'ilike' | 'or';
+  type: 'eq' | 'neq' | 'is' | 'in' | 'not_is' | 'gte' | 'lte' | 'ilike' | 'or';
   column?: string;
   value: unknown;
 };
@@ -88,8 +88,6 @@ class QueryBuilder implements PromiseLike<QueryResult> {
   is(column: string, value: unknown) { return this.addFilter('is', column, value); }
   in(column: string, value: unknown[]) { return this.addFilter('in', column, value); }
   gte(column: string, value: unknown) { return this.addFilter('gte', column, value); }
-  gt(column: string, value: unknown) { return this.addFilter('gt', column, value); }
-  lt(column: string, value: unknown) { return this.addFilter('lt', column, value); }
   lte(column: string, value: unknown) { return this.addFilter('lte', column, value); }
   ilike(column: string, value: unknown) { return this.addFilter('ilike', column, value); }
 

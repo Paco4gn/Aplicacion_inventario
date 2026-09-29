@@ -14,14 +14,12 @@ import { Components } from './pages/Components';
 import { AuditLog } from './pages/AuditLog';
 import { Administration } from './pages/Administration';
 import { RecycleBin } from './pages/RecycleBin';
-import { AI4FEVAL } from './pages/AI4FEVAL';
 import AssetPublic from './pages/AssetPublic';
 
 function PageRouter() {
   const { currentPage } = useApp();
   switch (currentPage) {
     case 'dashboard':  return <Dashboard />;
-    case 'ai4feval':   return <AI4FEVAL />;
     case 'assets':     return <Assets />;
     case 'employees':  return <Employees />;
     case 'incidents':  return <Incidents />;

@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { AIDeliverable, AIIntegration, AIKpi, AIPilot, AIProcess, AIUseCase, AIWorkItem, Asset, AssetAssignment, AuditLog, Component, ComponentMovement, Employee, Incident, IncidentComment, License, LicenseAssignment, Software } from '../types';
+import type { Asset, AssetAssignment, AuditLog, Component, ComponentMovement, Employee, Incident, IncidentComment, License, LicenseAssignment, Software } from '../types';
 
 type Column = { header: string; key: string; width?: number };
 type Row = Record<string, string | number | boolean | null | undefined>;
@@ -17,7 +17,7 @@ export async function downloadCompleteInventoryXlsx() {
   const [
     assetsResult, employeesResult, assignmentsResult, incidentsResult, commentsResult,
     softwareResult, licensesResult, licenseAssignmentsResult, componentsResult,
-    movementsResult, processesResult, useCasesResult, workItemsResult, pilotsResult, integrationsResult, kpisResult, deliverablesResult, auditResult,
+    movementsResult, auditResult,
   ] = await Promise.all([
     api.from('assets').select('*').order('serial_number'),
     api.from('employees').select('*').order('name'),
@@ -29,17 +29,10 @@ export async function downloadCompleteInventoryXlsx() {
     api.from('license_assignments').select('*').order('assigned_at', { ascending: false }),
     api.from('components').select('*').order('name'),
     api.from('component_movements').select('*').order('moved_at', { ascending: false }),
-    api.from('ai_processes').select('*').order('impact_score', { ascending: false }),
-    api.from('ai_use_cases').select('*').order('priority_score', { ascending: false }),
-    api.from('ai_work_items').select('*').order('start_date'),
-    api.from('ai_pilots').select('*').order('name'),
-    api.from('ai_integrations').select('*').order('system_name'),
-    api.from('ai_kpis').select('*').order('measurement_date', { ascending: false }),
-    api.from('ai_deliverables').select('*').order('due_date'),
     api.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(5000),
   ]);
 
-  const results = [assetsResult, employeesResult, assignmentsResult, incidentsResult, commentsResult, softwareResult, licensesResult, licenseAssignmentsResult, componentsResult, movementsResult, processesResult, useCasesResult, workItemsResult, pilotsResult, integrationsResult, kpisResult, deliverablesResult, auditResult];
+  const results = [assetsResult, employeesResult, assignmentsResult, incidentsResult, commentsResult, softwareResult, licensesResult, licenseAssignmentsResult, componentsResult, movementsResult, auditResult];
   const failed = results.find(result => result.error);
   if (failed?.error) throw new Error(failed.error.message);
 
@@ -53,13 +46,6 @@ export async function downloadCompleteInventoryXlsx() {
   const licenseAssignments = (licenseAssignmentsResult.data ?? []) as LicenseAssignment[];
   const components = (componentsResult.data ?? []) as Component[];
   const movements = (movementsResult.data ?? []) as ComponentMovement[];
-  const processes = (processesResult.data ?? []) as AIProcess[];
-  const useCases = (useCasesResult.data ?? []) as AIUseCase[];
-  const workItems = (workItemsResult.data ?? []) as AIWorkItem[];
-  const pilots = (pilotsResult.data ?? []) as AIPilot[];
-  const integrations = (integrationsResult.data ?? []) as AIIntegration[];
-  const kpis = (kpisResult.data ?? []) as AIKpi[];
-  const deliverables = (deliverablesResult.data ?? []) as AIDeliverable[];
   const audit = (auditResult.data ?? []) as AuditLog[];
 
   const employeeById = new Map(employees.map(item => [item.id, item]));
@@ -107,7 +93,6 @@ export async function downloadCompleteInventoryXlsx() {
     ['Generado', new Date().toLocaleString('es-ES')], ['Activos', assets.length], ['Activos asignados', activeAssignments.length],
     ['Empleados activos', employees.filter(item => item.active).length], ['Incidencias abiertas', openIncidents.length],
     ['Aplicaciones', software.length], ['Licencias', licenses.length], ['Componentes', components.length],
-    ['AI4FEVAL - Procesos', processes.length], ['AI4FEVAL - Casos de uso', useCases.length], ['AI4FEVAL - Pilotos', pilots.length],
     ['Valor de activos €', assets.reduce((total, item) => total + (item.purchase_value ?? 0), 0)],
     ['Valor de componentes €', components.reduce((total, item) => total + item.stock * (item.unit_cost ?? 0), 0)],
   ];
@@ -173,58 +158,6 @@ export async function downloadCompleteInventoryXlsx() {
     { header: 'Componente', key: 'component', width: 28 }, { header: 'Movimiento', key: 'movement_type' }, { header: 'Cantidad', key: 'quantity' }, { header: 'Motivo', key: 'reason', width: 35 },
     { header: 'Activo', key: 'asset', width: 22 }, { header: 'Fecha', key: 'moved_at', width: 21 },
   ], movements.map(item => ({ ...item, component: componentById.get(item.component_id)?.name, asset: item.asset_id ? assetById.get(item.asset_id)?.serial_number : '' })));
-
-  const processById = new Map(processes.map(item => [item.id, item]));
-  const useCaseById = new Map(useCases.map(item => [item.id, item]));
-  const pilotById = new Map(pilots.map(item => [item.id, item]));
-
-  addSheet('IA Procesos', [
-    { header: 'Proceso', key: 'name', width: 30 }, { header: 'Departamento', key: 'department', width: 22 }, { header: 'Responsable', key: 'owner', width: 24 },
-    { header: 'Descripción', key: 'description', width: 45 }, { header: 'Problema actual', key: 'current_pain', width: 45 }, { header: 'Frecuencia', key: 'frequency' },
-    { header: 'Volumen mensual', key: 'monthly_volume' }, { header: 'Minutos/caso', key: 'minutes_per_case' }, { header: 'Impacto', key: 'impact_score' },
-    { header: 'Viabilidad', key: 'viability_score' }, { header: 'Estado', key: 'opportunity_status' }, { header: 'Notas', key: 'notes', width: 35 },
-  ], processes.map(item => ({ ...item })));
-
-  addSheet('IA Casos de uso', [
-    { header: 'Código', key: 'code' }, { header: 'Caso de uso', key: 'title', width: 35 }, { header: 'Proceso', key: 'process', width: 28 },
-    { header: 'Categoría', key: 'category' }, { header: 'Objetivo', key: 'objective', width: 50 }, { header: 'Impacto', key: 'impact_score' },
-    { header: 'Viabilidad', key: 'viability_score' }, { header: 'Prioridad', key: 'priority_score' }, { header: 'Estado', key: 'status' },
-    { header: 'Responsable', key: 'responsible', width: 25 }, { header: 'Inicio', key: 'start_date' }, { header: 'Fin', key: 'end_date' },
-    { header: 'Riesgo', key: 'risk_level' }, { header: 'Datos', key: 'data_sensitivity' }, { header: 'Revisión ética', key: 'ethics_review' }, { header: 'Notas', key: 'notes', width: 35 },
-  ], useCases.map(item => ({ ...item, process: item.process_id ? processById.get(item.process_id)?.name : '' })));
-
-  addSheet('IA Plan 2026', [
-    { header: 'Código', key: 'code' }, { header: 'Actividad', key: 'title', width: 38 }, { header: 'Fase', key: 'phase' }, { header: 'Subtareas', key: 'subtasks', width: 48 },
-    { header: 'Días', key: 'duration_days' }, { header: 'Inicio', key: 'start_date' }, { header: 'Fin', key: 'end_date' }, { header: 'Estado', key: 'status' },
-    { header: 'Progreso %', key: 'progress' }, { header: 'Responsable', key: 'owner', width: 24 }, { header: 'Depende de', key: 'depends_on' }, { header: 'Notas', key: 'notes', width: 35 },
-  ], workItems.map(item => ({ ...item })));
-
-  addSheet('IA Pilotos', [
-    { header: 'Piloto', key: 'name', width: 32 }, { header: 'Caso de uso', key: 'use_case', width: 34 }, { header: 'Hipótesis', key: 'hypothesis', width: 45 },
-    { header: 'Arquitectura', key: 'architecture', width: 45 }, { header: 'Modelo', key: 'model_name' }, { header: 'Herramientas', key: 'tools', width: 28 },
-    { header: 'Estado', key: 'status' }, { header: 'Versión', key: 'version' }, { header: 'Antes min', key: 'baseline_minutes' }, { header: 'Actual min', key: 'current_minutes' },
-    { header: 'Precisión %', key: 'accuracy' }, { header: 'Satisfacción', key: 'satisfaction' }, { header: 'Ejecuciones/mes', key: 'monthly_runs' },
-    { header: 'Coste/mes €', key: 'monthly_cost' }, { header: 'Incidencias', key: 'incidents_count' }, { header: 'Última evaluación', key: 'last_evaluation_at' },
-    { header: 'Repositorio', key: 'repository_url', width: 36 }, { header: 'Demo', key: 'demo_url', width: 36 }, { header: 'Notas', key: 'notes', width: 35 },
-  ], pilots.map(item => ({ ...item, use_case: item.use_case_id ? useCaseById.get(item.use_case_id)?.title : '' })));
-
-  addSheet('IA Integraciones', [
-    { header: 'Sistema', key: 'system_name', width: 28 }, { header: 'Piloto', key: 'pilot', width: 30 }, { header: 'Tipo', key: 'integration_type' },
-    { header: 'Dirección', key: 'data_direction' }, { header: 'Entorno', key: 'environment' }, { header: 'Estado', key: 'status' },
-    { header: 'Responsable', key: 'owner', width: 24 }, { header: 'Última prueba', key: 'last_tested_at' }, { header: 'Notas', key: 'notes', width: 40 },
-  ], integrations.map(item => ({ ...item, pilot: item.pilot_id ? pilotById.get(item.pilot_id)?.name : '' })));
-
-  addSheet('IA Indicadores', [
-    { header: 'Indicador', key: 'name', width: 34 }, { header: 'Caso de uso', key: 'use_case', width: 32 }, { header: 'Piloto', key: 'pilot', width: 30 },
-    { header: 'Unidad', key: 'unit' }, { header: 'Línea base', key: 'baseline_value' }, { header: 'Objetivo', key: 'target_value' },
-    { header: 'Actual', key: 'current_value' }, { header: 'Fecha medición', key: 'measurement_date' }, { header: 'Evidencia', key: 'evidence_url', width: 40 }, { header: 'Notas', key: 'notes', width: 35 },
-  ], kpis.map(item => ({ ...item, use_case: item.use_case_id ? useCaseById.get(item.use_case_id)?.title : '', pilot: item.pilot_id ? pilotById.get(item.pilot_id)?.name : '' })));
-
-  addSheet('IA Entregables', [
-    { header: 'Código', key: 'code' }, { header: 'Entregable', key: 'title', width: 42 }, { header: 'Fase', key: 'phase' }, { header: 'Tipo', key: 'deliverable_type' },
-    { header: 'Estado', key: 'status' }, { header: 'Vencimiento', key: 'due_date' }, { header: 'Completado', key: 'completed_at' },
-    { header: 'Responsable', key: 'owner', width: 24 }, { header: 'Evidencia', key: 'file_url', width: 40 }, { header: 'Notas', key: 'notes', width: 40 },
-  ], deliverables.map(item => ({ ...item })));
 
   addSheet('Auditoría', [
     { header: 'Fecha', key: 'created_at', width: 21 }, { header: 'Acción', key: 'action' }, { header: 'Entidad', key: 'entity_type' }, { header: 'Nombre', key: 'entity_name', width: 30 },
